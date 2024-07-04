@@ -12,6 +12,8 @@ import {
     Mnemonic, Signature, HDNodeWallet
 } from "ethers";
 
+import { verify } from "./attest.mjs";
+
 
 const FOLDER = "/Volumes/FireflyProvision";
 
@@ -114,7 +116,7 @@ class Log {
 
         log.log({ filename, serial });
 
-        const sendCommand = async (line) => {
+        const sendCommand = async (line, ignoreError) => {
             const result = { };
             const errors = [ ];
             device.writeLine(line);
@@ -123,6 +125,7 @@ class Log {
 
                 if (line === "<OK") { break; }
                 if (line === "<ERROR") {
+                    if (ignoreError) { break; }
                     if (errors.length) {
                         throw new Error(errors.join("; "));
                     } else {
@@ -190,9 +193,11 @@ class Log {
 
             log.log(await sendCommand(`BURN`));
 
-            log.log(await sendCommand(`ATTEST=0123456789abcdef`));
+            const proof = await sendCommand(`ATTEST=0123456789abcdef`);
+            console.log({ proof });
+            console.log(verify(proof.attest));
 
-            log.log({ dump: await sendCommand(`DUMP`) });
+            log.log({ dump: await sendCommand(`DUMP`, true) });
 
         } catch (error) {
             log.log({ error });
