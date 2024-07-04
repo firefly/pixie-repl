@@ -1,0 +1,29 @@
+# ESP-IDF Partition Table
+
+# Notes
+# - first partition must start at 0x9000
+# - app partition must be aligned at 64kb (0x10000)
+
+# Name,    Type,  SubType,   Offset,        Size, Flags
+
+# The device attestation data (28kb)
+attest,    data,   nvs,      0x009000,   0x007000
+
+factory,   app,    factory,  0x010000,   0x700000,
+
+## The Recovery app (960kb)
+#factory,   app,    factory,  0x010000,   0x0ee000,
+
+# Stores OTA partition data (8kb)
+#otadata,   data,   ota,      0x00e000,   0x002000,
+
+# OTA partitions (7MB each)
+#ota_0,     app,    ota_0,    0x200000,   0x700000,
+#ota_1,     app,    ota_1,    0x900000,   0x700000,
+
+# Device NVS; used to store user private keys, etc. (1MB)
+nvs,       data,   nvs,      0xf00000,   0x100000,
+
+
+# @TODO: Maybe remove this?
+#phy_init,  data,  phy,      0x00e000,  0x001000,
