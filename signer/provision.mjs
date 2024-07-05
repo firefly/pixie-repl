@@ -114,8 +114,6 @@ class Log {
             continue;
         }
 
-        log.log({ filename, serial });
-
         const sendCommand = async (line, ignoreError) => {
             const result = { };
             const errors = [ ];
@@ -135,14 +133,21 @@ class Log {
 
                 const match = line.match(/^<([a-zA-Z0-9._-]*)=(.*)$/);
                 if (match) {
+                    // REPL keyed output parameter
                     result[match[1]] = match[2];
                 } else if (line.startsWith("?")) {
+                    // REPL info
                     log.log(`[ INFO ] ${ line.substring(1).trim() }`);
                 } else if (line.startsWith("!")) {
+                    // REPL error
                     log.log(`[ ERROR ] ${ line.substring(1).trim() }`);
                     errors.push(line.substring(1).trim());
+                } else if (line.match(/^ *I \([0-9+]\)/)) {
+                    // ESP info
+                    log.log(`[ INFO ] ${ line.trim() }`);
                 } else if (line) {
-                    log.log(`[ WARNING ] Unkown: ${ line }`);
+                    // Something else
+                    log.log(`[ WARNING ] Unknown: ${ line }`);
                 }
 
                 await stall(100);
@@ -165,12 +170,19 @@ class Log {
                 }
             }
 
-            log.log("READY; beginning");
+            await stall(500);
+
+            await sendCommand(`NOP`, true);
+
+            await stall(100);
+
+            log.log(`READY; beginning serial=${ serial } filename=${ JSON.stringify(filename) }`);
+
+            await sendCommand(`SET-MODEL=${ model }`);
+            await sendCommand(`SET-SERIAL=${ serial }`);
 
             const dump = await sendCommand(`DUMP`);
             log.log({ dump });
-            await sendCommand(`SET-MODEL=${ model }`);
-            await sendCommand(`SET-SERIAL=${ serial }`);
 
             await sendCommand(`STIR-ENTROPY=${ hexlify(randomBytes(32)) }`);
             await sendCommand(`STIR-IV=${ hexlify(randomBytes(32)) }`);
@@ -193,10 +205,11 @@ class Log {
 
             log.log(await sendCommand(`BURN`));
 
+/*
             const proof = await sendCommand(`ATTEST=0123456789abcdef`);
             console.log({ proof });
             console.log(verify(proof.attest));
-
+*/
             log.log({ dump: await sendCommand(`DUMP`, true) });
 
         } catch (error) {
