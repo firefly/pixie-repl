@@ -4,12 +4,15 @@
 #include "esp_ds.h"
 #include "esp_efuse.h"
 #include "esp_random.h"
+#include "esp_system.h"
 #include "nvs_flash.h"
 
 #include "keypair.h"
 #include "sha2.h"
 #include "utils.h"
 
+#include "firefly-display.h"
+#include "firefly-scene.h"
 
 #define DEVICE_INFO_BLOCK   (EFUSE_BLK3)
 #define ATTEST_SLOT         (2)
@@ -142,7 +145,8 @@ int dumpNvs(nvs_handle_t nvs, char *key, size_t length) {
 
     return olen;
 }
-void app_main() {
+
+void provision_repl() {
     int ret = 0;
     printf("? start provisioning\n");
 
@@ -154,17 +158,17 @@ void app_main() {
     nvs_handle_t nvs;
 
     ret = nvs_open_from_partition("attest", "secure", NVS_READWRITE, &nvs);
-    //if (ret == ESP_ERR_NVS_PART_NOT_FOUND) {
-        if (ret) { panic("failed to open attest partition", ret); }
-    //}
+    if (ret) { panic("failed to open attest partition", ret); }
 
-    // Populated by GEN-KEY
-    KeyPair keypair;
-    esp_ds_p_data_t params = { 0 };
-    esp_ds_data_t *cipherData = NULL;
 
-    uint8_t attest[64];
-    memset(attest, 0, sizeof(attest));
+    uint8_t pubkeyN[384] = { 0 };
+    bool hasPubKey = false;
+
+    uint8_t cipherdata[sizeof(esp_ds_data_t)] = { 0 };
+    bool hasCipherdata = false;
+
+    uint8_t attest[64] = { 0 };
+    bool hasAttest = false;
 
     uint8_t iv[16];
     esp_fill_random(iv, sizeof(iv));
@@ -178,19 +182,14 @@ void app_main() {
     uint32_t modelNumber = 0;
     uint32_t serialNumber = 0;
 
-    /*
-    {
-        uint8_t value[] = { 0x5f, 0x00, 0x00, 0x00, 0x7d, 0x26, 0x84, 0xe5, 0x39, 0xd1, 0x82, 0x0c, 0x2a, 0x0a, 0xc8, 0x3b, 0xed, 0xcb, 0x83, 0x10, 0xb7, 0x76, 0x53, 0x60, 0xc9, 0x40, 0xc4, 0x48, 0xd9, 0x1e, 0x72, 0xff, 0x86, 0x07, 0xaa, 0x9e, 0x1c, 0xc3, 0xe1, 0x23, 0x12, 0x19, 0xa5, 0xf8, 0x9e, 0xdb, 0x33, 0x5e, 0x5a, 0x90, 0x6c, 0x78, 0x4f, 0x1f, 0xcf, 0x97, 0x95, 0x8d, 0xd0, 0x3d, 0xa8, 0xdc, 0x29, 0x8c, 0x66, 0x67, 0x3d, 0x10, 0xfb, 0x0a, 0x71, 0x8e, 0xd0, 0xf5, 0x31, 0x08, 0x77, 0x16, 0x4c, 0x1a, 0xd1, 0xcb, 0x93, 0x3d, 0x7f, 0x50, 0x16, 0x75, 0x98, 0x0d, 0xc0, 0xed, 0x0d, 0x0b, 0x67, 0x7d, 0xcb, 0x83, 0x39, 0x60, 0xd7, 0xe5, 0x9d, 0x7b, 0x2b, 0xbe, 0xda, 0xc1, 0xbc, 0xc4, 0xd2, 0xa1, 0xb5, 0x9b, 0x63, 0xef, 0xf7, 0x43, 0x27, 0xad, 0x58, 0x15, 0xe7, 0x7d, 0x3f, 0x17, 0x75, 0xa6, 0x78, 0x30, 0xf4, 0x2f, 0xcb, 0x97, 0xbc, 0xe9, 0x69, 0x74, 0x57, 0x94, 0x35, 0xe7, 0xc3, 0x8e, 0xbe, 0x81, 0xdb, 0x9f, 0x39, 0x1a, 0x96, 0xe5, 0xaa, 0xd4, 0x11, 0xde, 0x6c, 0xf6, 0x5c, 0x7c, 0x2f, 0x2d, 0x31, 0x32, 0x1b, 0x21, 0x19, 0xfc, 0xa5, 0x81, 0x5e, 0x85, 0x63, 0xf3, 0xb1, 0xf8, 0x05, 0x09, 0x65, 0x82, 0x18, 0x73, 0xfa, 0xe2, 0x34, 0x45, 0x1f, 0xca, 0x32, 0x66, 0x1f, 0x3b, 0xa5, 0x2b, 0x9c, 0xe0, 0xd9, 0x69, 0x2f, 0x88, 0xab, 0xd1, 0x5d, 0xdd, 0x07, 0x29, 0x80, 0x1d, 0x3e, 0x83, 0x27, 0x2d, 0x03, 0x47, 0xde, 0x12, 0x77, 0x4f, 0xf4, 0x54, 0x70, 0xf3, 0x94, 0x6e, 0x37, 0xc0, 0xa3, 0xc3, 0x16, 0xb4, 0x1f, 0xb1, 0xf1, 0xa0, 0xfc, 0xaa, 0xf6, 0xaf, 0x17, 0x0e, 0xbf, 0x4a, 0x24, 0x06, 0xc2, 0xf4, 0xcf, 0x0e, 0xe8, 0xf1, 0x4a, 0x94, 0x05, 0x34, 0xdf, 0x9c, 0x6e, 0x89, 0x11, 0x42, 0x9a, 0xe8, 0xa3, 0x93, 0x28, 0x03, 0xee, 0x23, 0xd8, 0xc6, 0xbf, 0x04, 0x74, 0x48, 0x26, 0x6b, 0x52, 0x97, 0x91, 0x1d, 0x75, 0x7b, 0x2e, 0xd5, 0xd4, 0x59, 0xda, 0x80, 0x82, 0x4b, 0x55, 0x34, 0x01, 0x1d, 0x0a, 0xaf, 0x09, 0x03, 0x78, 0x45, 0x9a, 0x81, 0x2b, 0xe9, 0xb3, 0x6d, 0x41, 0x39, 0x86, 0x5d, 0x2b, 0x81, 0x30, 0x74, 0xeb, 0x88, 0x8b, 0x97, 0x76, 0x04, 0x7f, 0x55, 0x7d, 0x6c, 0x3e, 0x98, 0xe5, 0x38, 0xf6, 0xa1, 0xc1, 0xe4, 0x5e, 0x44, 0xa1, 0x44, 0x02, 0xae, 0x10, 0xa0, 0x8e, 0x0e, 0x41, 0xb2, 0x9e, 0x94, 0xf6, 0x72, 0xe4, 0x81, 0x43, 0x49, 0xd0, 0x61, 0x7a, 0x14, 0xc6, 0xeb, 0xcf, 0x88, 0x9e, 0xef, 0x75, 0x13, 0xb3, 0xd5, 0xbb, 0xf0, 0x93, 0x45, 0xb5, 0xb5, 0x58, 0x1d, 0x6e, 0x17, 0xcc, 0x94, 0xbd, 0xf5, 0x46, 0x21, 0xa3, 0x5a, 0xc9, 0xd8, 0x33, 0xdb, 0x36, 0xbc, 0x13, 0x68, 0x87, 0x7c, 0xd3, 0xeb, 0x3a, 0xea, 0xef, 0xa9, 0x7b, 0x55, 0x1e, 0x4b, 0x74, 0x2d, 0x27, 0x24, 0xaf, 0x1d, 0x24, 0x1b, 0x5e, 0xc9, 0xe8, 0x81, 0x79, 0x17, 0x25, 0x27, 0xfa, 0x65, 0xfc, 0x4d, 0xa1, 0xc3, 0x3e, 0xf1, 0xb4, 0xf4, 0x7d, 0xb0, 0xf4, 0xaa, 0x5d, 0xf0, 0x33, 0x9b, 0xa7, 0x54, 0x17, 0x32, 0xfa, 0xe9, 0xf7, 0x59, 0x21, 0xdc, 0x22, 0x86, 0x51, 0x37, 0xdc, 0xfb, 0xa3, 0x1e, 0xe1, 0x8e, 0x57, 0x8b, 0xab, 0xa1, 0xc4, 0xdc, 0xe8, 0x15, 0x77, 0xae, 0xcd, 0x7b, 0x95, 0x02, 0x76, 0x3a, 0xfd, 0x83, 0x03, 0x68, 0x8e, 0x8a, 0x14, 0x18, 0x5f, 0xe7, 0xfe, 0x76, 0xb3, 0x11, 0x50, 0x6e, 0x72, 0x82, 0x09, 0xba, 0x34, 0x94, 0x41, 0x53, 0xac, 0x63, 0x96, 0x5f, 0xe1, 0x08, 0x10, 0x3b, 0xe7, 0xaf, 0x38, 0x7b, 0x9f, 0x2f, 0xac, 0xed, 0xc8, 0x99, 0xc2, 0x62, 0x61, 0xdf, 0x70, 0xf4, 0xf9, 0xf0, 0xf8, 0xc4, 0x6e, 0xee, 0x9c, 0x50, 0x90, 0xe1, 0x6c, 0x63, 0xdc, 0x13, 0xb1, 0x84, 0x83, 0x13, 0xfb, 0xbd, 0x99, 0xed, 0xa1, 0xb3, 0xe4, 0x49, 0xd8, 0x15, 0x9b, 0x80, 0x12, 0x4b, 0xc3, 0xe9, 0xd6, 0x11, 0x49, 0x90, 0xe1, 0x82, 0x8a, 0x50, 0x21, 0x56, 0x48, 0x69, 0x47, 0xb9, 0x35, 0x15, 0xf5, 0xcc, 0x08, 0x5e, 0x73, 0x64, 0x51, 0xe4, 0xb4, 0x92, 0xa2, 0x54, 0x03, 0xcd, 0xba, 0xea, 0xac, 0x96, 0xb9, 0x68, 0x19, 0x1e, 0xdb, 0x28, 0x03, 0x4e, 0x7f, 0xa2, 0x1b, 0xb2, 0x45, 0x13, 0x69, 0x61, 0xa6, 0x3e, 0xf2, 0x25, 0x2a, 0x1b, 0x6f, 0x34, 0x3a, 0x1e, 0x5b, 0x54, 0x9f, 0x9e, 0x9d, 0x6e, 0x27, 0x01, 0xe5, 0xc4, 0x46, 0x04, 0xbb, 0x0d, 0x26, 0xa1, 0x1c, 0xc2, 0x6e, 0xa6, 0xbe, 0x6f, 0xda, 0x55, 0xdc, 0x30, 0xed, 0x41, 0x93, 0x7a, 0xf7, 0xfd, 0x29, 0x86, 0x84, 0x49, 0xfa, 0x24, 0x16, 0xd4, 0x56, 0xd6, 0x5e, 0xb7, 0x60, 0x09, 0xf7, 0xad, 0x0b, 0xd7, 0x1b, 0x8f, 0x6c, 0x75, 0xda, 0x12, 0xcd, 0xc9, 0x23, 0x48, 0xeb, 0x70, 0x48, 0x1f, 0xfb, 0x19, 0xbc, 0x07, 0x9b, 0x3b, 0xff, 0x15, 0x7e, 0x75, 0x53, 0xb4, 0xd5, 0x08, 0x07, 0x48, 0x56, 0xc3, 0xa4, 0x1c, 0xef, 0x2f, 0xd9, 0x2c, 0xd2, 0x94, 0x3e, 0x7e, 0x55, 0xf5, 0x96, 0xb1, 0x19, 0x95, 0x23, 0xfb, 0xd1, 0xdc, 0x67, 0x0e, 0x32, 0xa4, 0x31, 0x66, 0xdb, 0xf8, 0x4e, 0x1b, 0x2c, 0x7a, 0xff, 0x42, 0xd7, 0x1a, 0x55, 0x49, 0xed, 0x3b, 0x3a, 0x6c, 0x4f, 0x89, 0x30, 0x70, 0x0f, 0x69, 0x02, 0x81, 0xc6, 0x04, 0xf0, 0x9a, 0xe2, 0x88, 0x51, 0xb9, 0x2d, 0x91, 0x76, 0x36, 0x83, 0xc1, 0x35, 0xa1, 0xa4, 0xbd, 0xdf, 0x19, 0x86, 0xde, 0x20, 0x7c, 0xe6, 0xa0, 0xcb, 0x6b, 0x76, 0xfa, 0x6a, 0x15, 0x80, 0x68, 0x1e, 0x1d, 0x0d, 0x85, 0x76, 0x6a, 0xb8, 0x56, 0x9f, 0x7f, 0x15, 0xbe, 0x2f, 0x3f, 0x47, 0x9e, 0xde, 0xc6, 0xca, 0xf5, 0x88, 0x0c, 0x39, 0x11, 0x95, 0x29, 0xda, 0x59, 0xa0, 0xe2, 0xd1, 0xd7, 0xe2, 0xf4, 0x2a, 0xe3, 0x9d, 0x42, 0xa6, 0xba, 0x58, 0x15, 0x56, 0xc9, 0xfc, 0xea, 0x0c, 0x58, 0x21, 0x1f, 0xf9, 0xe3, 0xea, 0x67, 0x8b, 0xf4, 0xae, 0x6f, 0x48, 0x27, 0xbc, 0x62, 0xf9, 0xca, 0x9e, 0xdd, 0xa4, 0xff, 0xa8, 0xd8, 0x7a, 0x4c, 0x26, 0xe6, 0x1d, 0xb7, 0x5a, 0x2b, 0x66, 0xba, 0x13, 0xbc, 0x07, 0xcc, 0x4a, 0xe2, 0x9c, 0xcf, 0x57, 0x84, 0x84, 0xd2, 0x1f, 0x08, 0x0d, 0x8a, 0x19, 0x1c, 0xe5, 0x3a, 0x3b, 0x9f, 0x1a, 0x67, 0xe4, 0xf0, 0x39, 0x57, 0xd0, 0x7e, 0x27, 0xef, 0x20, 0x43, 0x05, 0x96, 0x11, 0x77, 0xf1, 0x24, 0x57, 0x62, 0xb2, 0x0b, 0xbe, 0x63, 0x8f, 0x05, 0x7d, 0x2c, 0x52, 0xf7, 0x4c, 0x54, 0xfc, 0x9d, 0x5f, 0x4f, 0x90, 0x55, 0xc8, 0x21, 0xe1, 0x6b, 0xdf, 0xad, 0x92, 0x78, 0x06, 0x7d, 0xb8, 0x36, 0x55, 0x8d, 0x84, 0x9d, 0x15, 0x0d, 0x01, 0x37, 0x11, 0xd5, 0xd1, 0xb8, 0x3d, 0x64, 0x08, 0x12, 0xa7, 0xbe, 0x38, 0x55, 0xe7, 0x19, 0x75, 0x7b, 0x36, 0xf8, 0xb2, 0x92, 0xb6, 0x17, 0xbd, 0xde, 0x58, 0x7d, 0xe7, 0x2d, 0x2c, 0x91, 0x74, 0x1f, 0x85, 0x68, 0x99, 0x85, 0x06, 0x53, 0xa4, 0xe8, 0x40, 0x21, 0x1e, 0x5e, 0xca, 0xe0, 0xee, 0x9d, 0x9a, 0x1a, 0x8c, 0x45, 0x31, 0x68, 0xe6, 0x0e, 0xd4, 0x5c, 0x47, 0xc5, 0xe1, 0xc0, 0xf0, 0xa2, 0xf3, 0x45, 0x06, 0x5b, 0x19, 0x9c, 0xde, 0x17, 0x23, 0x63, 0x52, 0x27, 0x31, 0x43, 0xe1, 0x12, 0xc2, 0xa3, 0x43, 0xd5, 0xd6, 0x3d, 0xdd, 0x68, 0x87, 0xe8, 0x64, 0x2c, 0x7f, 0xb3, 0xff, 0x30, 0xf7, 0xf2, 0xc5, 0x97, 0x59, 0x9f, 0x30, 0x8c, 0xe7, 0x8c, 0x0e, 0x89, 0x79, 0x0b, 0x38, 0xe3, 0xe8, 0xb2, 0xf0, 0xc3, 0x75, 0x86, 0xfc, 0x02, 0xed, 0x14, 0xe9, 0xd8, 0xd4, 0x98, 0xe0, 0xef, 0x23, 0xa7, 0x43, 0xd2, 0x98, 0xe2, 0xbd, 0x88, 0xdc, 0xf4, 0x4d, 0xf2, 0x15, 0xa8, 0x39, 0x78, 0x8c, 0x2e, 0xb5, 0xee, 0xec, 0xa0, 0x36, 0xd5, 0x54, 0x78, 0x01, 0x78, 0x42, 0x5b, 0x2e, 0x28, 0xac, 0x22, 0x91, 0x1e, 0xd4, 0x80, 0xd6, 0xdc, 0x9f, 0xd7, 0xc7, 0x9a, 0x27, 0x36, 0xb3, 0x25, 0x86, 0x02, 0x4d, 0xb4, 0xf3, 0xad, 0x35, 0xb8, 0xcd, 0x1c, 0xa3, 0xce, 0x9d, 0xb8, 0x15, 0xde, 0xea, 0xad, 0x3a, 0x03, 0x15, 0x1e, 0x0b, 0xc3, 0xed, 0x16, 0x44, 0x7a, 0xed, 0x76, 0xbe, 0x6a, 0xf5, 0x9c, 0xef, 0xa1, 0x7d, 0x03, 0xa9, 0x5d, 0x31, 0x19, 0xf0, 0x54, 0xe6, 0x90, 0x9e, 0x3e, 0x1b, 0x72, 0xcf, 0x00, 0x55, 0xfe, 0x9f, 0xe7, 0xae, 0x8c, 0xdb, 0xf9, 0x92, 0xe7, 0x76, 0xc4, 0x7c, 0x02, 0x8f, 0x28, 0xbb, 0x26, 0x0b, 0xf5, 0x76, 0xde, 0x65, 0x20, 0xed, 0x0f, 0xbc, 0x35, 0xdc, 0x71, 0x64, 0x93, 0xef, 0x88, 0x4f, 0x68, 0xe1, 0xec, 0x34, 0x3b, 0x1f, 0xb8, 0xdc, 0x7b, 0x71, 0x9a, 0xe4, 0x21, 0x77, 0x60 };
-        memcpy((uint8_t*)cipherData, value, sizeof(esp_ds_data_t));
-    }
-    dumpBuffer("cipherData=", (uint8_t*)cipherData, sizeof(esp_ds_data_t));
-    */
+    uint32_t randMarker = esp_random();
+
 
     // Begin accepting input from the provisioning service
 
     int readyCount = 0;
 
-    char buffer[512];
+    char buffer[2048];
 
     size_t offset = 0;
     buffer[0] = 0;
@@ -256,13 +255,46 @@ void app_main() {
             int length = i - start;
 
             if (startsWith(buffer, "ATTEST=", i)) {
+                bool error = false;
+
                 if (length != 16) {
-                    printf("! ATTEST bad length\n");
+                    printf("! ATTEST bad parameter length\n");
+                    error = true;
+                }
+
+                if (modelNumber == 0) {
+                    printf("! ATTEST no model number present (use SET-MODEL or LOAD-EFUSE)\n");
+                    error = true;
+                }
+
+                if (serialNumber == 0) {
+                    printf("! ATTEST no serial number present (use SET-MODEL or LOAD-EFUSE)\n");
+                    error = true;
+                }
+
+                if (hasPubKey) {
+                    printf("! ATTEST no pubkey present (use GEN-KEY, LOAD-NVS or SET-PUBKEYN)\n");
+                    error = true;
+                }
+
+                if (hasCipherdata) {
+                    printf("! ATTEST no cipherdata present (use GEN-KEY, LOAD-NVS or SET-CIPHERDATA)\n");
+                    error = true;
+                }
+
+                if (hasAttest) {
+                    printf("! ATTEST no attest present (use SET-ATTEST or LOAD-NVS)\n");
+                    error = true;
+                }
+
+                if (error) {
                     printf("<ERROR\n");
 
-                    offset = 0; buffer[0] = 0;
+                    offset = 0;
+                    buffer[0] = 0;
                     break;
                 }
+
 
                 size_t nLen = KEY_SIZE / 8;
 
@@ -287,25 +319,32 @@ void app_main() {
                 readBuffer(&attestation[offset], &buffer[start], length);
                 offset += length / 2;
 
-                uint32_t model = esp_efuse_read_reg(EFUSE_BLK3, 1);
-                attestation[offset++] = (model >> 24) & 0xff;
-                attestation[offset++] = (model >> 16) & 0xff;
-                attestation[offset++] = (model >> 8) & 0xff;
-                attestation[offset++] = (model >> 0) & 0xff;
+                //uint32_t model = esp_efuse_read_reg(EFUSE_BLK3, 1);
+                attestation[offset++] = (modelNumber >> 24) & 0xff;
+                attestation[offset++] = (modelNumber >> 16) & 0xff;
+                attestation[offset++] = (modelNumber >> 8) & 0xff;
+                attestation[offset++] = (modelNumber >> 0) & 0xff;
 
-                uint32_t serial = esp_efuse_read_reg(EFUSE_BLK3, 2);
-                attestation[offset++] = (serial >> 24) & 0xff;
-                attestation[offset++] = (serial >> 16) & 0xff;
-                attestation[offset++] = (serial >> 8) & 0xff;
-                attestation[offset++] = (serial >> 0) & 0xff;
+                //uint32_t serial = esp_efuse_read_reg(EFUSE_BLK3, 2);
+                attestation[offset++] = (serialNumber >> 24) & 0xff;
+                attestation[offset++] = (serialNumber >> 16) & 0xff;
+                attestation[offset++] = (serialNumber >> 8) & 0xff;
+                attestation[offset++] = (serialNumber >> 0) & 0xff;
 
-                size_t olen = 384;
-                nvs_get_blob(nvs, "pubkey-n", &attestation[offset], &olen);
+
+                memcpy(&attestation[offset], pubkeyN, nLen);
                 offset += nLen;
 
-                olen = 64;
-                nvs_get_blob(nvs, "attest", &attestation[offset], &olen);
-                offset += olen;
+                //size_t olen = 384;
+                //nvs_get_blob(nvs, "pubkey-n", &attestation[offset], &olen);
+                //offset += nLen;
+
+                memcpy(&attestation[offset], attest, 64);
+                offset += 64;
+
+                //olen = 64;
+                //nvs_get_blob(nvs, "attest", &attestation[offset], &olen);
+                //offset += olen;
 
                 Sha256Context ctx;
                 sha2_initSha256(&ctx);
@@ -313,18 +352,12 @@ void app_main() {
                 sha2_finalSha256(&ctx, &attestation[offset]);
                 reverseBytes(&attestation[offset], 32);
 
-                if (cipherData == NULL) {
-                    cipherData = heap_caps_malloc(sizeof(esp_ds_data_t), MALLOC_CAP_DMA);
-                    memset(cipherData, 0, sizeof(esp_ds_data_t));
+                esp_ds_data_t *encParams = heap_caps_malloc(sizeof(esp_ds_data_t), MALLOC_CAP_DMA);
+                memcpy((uint8_t*)encParams, cipherdata, sizeof(esp_ds_data_t));
 
-                    olen = sizeof(esp_ds_data_t);
-                    nvs_get_blob(nvs, "cipherdata", cipherData, &olen);
-                    dumpBuffer("<nvs.cipherdata=", (uint8_t*)cipherData, sizeof(esp_ds_data_t));
-                }
-
-                ret = esp_ds_sign(&attestation[offset], cipherData,
+                ret = esp_ds_sign(&attestation[offset], encParams,
                   ATTEST_HMAC_KEY, &attestation[offset]);
-                reverseBytes(&attestation[offset], 384);
+                reverseBytes(&attestation[offset], nLen);
                 dumpBuffer("<attest=", attestation, sizeof(attestation));
 
                 printf("<OK\n");
@@ -338,6 +371,8 @@ void app_main() {
                 if (ret) { panic("failed efuse write version", ret); }
                 ret = esp_efuse_write_reg(EFUSE_BLK3, 2, serialNumber);
                 if (ret) { panic("failed efuse write version", ret); }
+                ret = esp_efuse_write_reg(EFUSE_BLK3, 4, randMarker);
+                if (ret) { panic("failed efuse write version", ret); }
                 ret = esp_efuse_batch_write_commit();
                 if (ret) { panic("failed efuse batch commit", ret); }
 
@@ -348,9 +383,7 @@ void app_main() {
 
             } else if (startsWith(buffer, "DUMP", i)) {
                 int inUse = dumpKey(ATTEST_SLOT);
-                if (inUse) {
-                    printf("! attestation keyHmac block already burned\n");
-                }
+                printf("<efuse.key.burned=%d\n", inUse);
 
                 uint32_t valueCheck = 0;
                 printf("<efuse.blk3=");
@@ -361,76 +394,158 @@ void app_main() {
                 }
                 printf(" (length=32 bytes)\n");
 
+                printf("<efuse.blk3.burned=%d\n", valueCheck != 0);
                 if (valueCheck) {
-                    printf("! device info block already burned\n");
+                    printf("<efuse.model=%ld\n", esp_efuse_read_reg(DEVICE_INFO_BLOCK, 1));
+                    printf("<efuse.serial=%ld\n", esp_efuse_read_reg(DEVICE_INFO_BLOCK, 2));
+                    printf("<efuse.randMarker=%lu\n", esp_efuse_read_reg(DEVICE_INFO_BLOCK, 4));
                 }
 
                 dumpNvs(nvs, "attest", 64);
                 dumpNvs(nvs, "pubkey-n", 384);
-                dumpNvs(nvs, "cipherdata", 1220);
+                dumpNvs(nvs, "cipherdata", sizeof(esp_ds_data_t));
 
-                printf("<pending.modelNumber=%ld\n", modelNumber);
-                printf("<pending.serialNumber=%ld\n", serialNumber);
-
-                if (cipherData) {
-                    keypair_dumpMpi("<pending.pubkey.N=", &keypair.N);
-                    keypair_dumpMpi("<pending.pubkey.E=", &keypair.E);
-                    dumpBuffer("<pending.cipherData=", (uint8_t*)cipherData, sizeof(esp_ds_data_t));
+                if (modelNumber) {
+                    printf("<pending.modelNumber=%ld\n", modelNumber);
                 }
 
-                dumpBuffer("<pending.attest=", attest, sizeof(attest));
-
-                if (inUse || valueCheck) {
-                    printf("<ERROR\n");
-                } else {
-                    printf("<OK\n");
+                if (serialNumber) {
+                    printf("<pending.serialNumber=%ld\n", serialNumber);
                 }
+
+                printf("<pending.randMarker=%lu\n", randMarker);
+
+                if (hasPubKey) {
+                    dumpBuffer("<pending.pubkey.N=", pubkeyN, sizeof(pubkeyN));
+                }
+
+                if (hasCipherdata) {
+                    dumpBuffer("<pending.cipherdata=", (uint8_t*)cipherdata, sizeof(esp_ds_data_t));
+                }
+
+                if (hasAttest) {
+                    dumpBuffer("<pending.attest=", attest, sizeof(attest));
+                }
+
+                printf("<ready=%d\n", (inUse || valueCheck));
+
+                printf("<OK\n");
 
             } else if (startsWith(buffer, "GEN-KEY", i)) {
-                if (cipherData != NULL) {
-                    printf("! GEN-KEY already called\n");
-                    printf("<ERROR\n");
+                if (hasCipherdata) {
+                    printf("? GEN-KEY resetting cipherdata\n");
+                    hasCipherdata = false;
+                }
 
-                    offset = 0; buffer[0] = 0;
-                    break;
+                if (hasPubKey) {
+                    printf("? GEN-KEY resetting key\n");
+                    hasPubKey = false;
                 }
 
                 printf("? starting key generation (%d-bit)\n", KEY_SIZE);
 
                 // Create an RSA keypair
+                KeyPair keypair = { 0 };
                 ret = keypair_generate(&keypair, KEY_SIZE, entropy, sizeof(entropy));
                 if (ret) { panic("failed to generate RSA key", ret); }
                 keypair_dumpMpi("<pubkey.N=", &keypair.N);
-                keypair_dumpMpi("<pubkey.E=", &keypair.E);
+                mbedtls_mpi_write_binary(&keypair.N, pubkeyN, 384);
 
                 // Convert it to the ESP format
+                esp_ds_p_data_t params = { 0 };
                 ret = keypair_getParams(&keypair, &params);
                 if (ret) { panic("failed to generate RSA key", ret); }
                 //dumpBuffer("!PRIVATE<params=", (uint8_t*)&params, sizeof(esp_ds_p_data_t));
 
-                cipherData = heap_caps_malloc(sizeof(esp_ds_data_t), MALLOC_CAP_DMA);
-                memset(cipherData, 0, sizeof(esp_ds_data_t));
+                esp_ds_data_t *encParams = heap_caps_malloc(sizeof(esp_ds_data_t), MALLOC_CAP_DMA);
+                memset(encParams, 0, sizeof(esp_ds_data_t));
 
                 // Encrypt it using the hardware
-                ret = esp_ds_encrypt_params(cipherData, iv, &params, key);
+                ret = esp_ds_encrypt_params(encParams, iv, &params, key);
                 if (ret) { panic("failed to encrypt params", ret); }
-                dumpBuffer("<cipherData=", (uint8_t*)cipherData, sizeof(esp_ds_data_t));
+                memcpy(cipherdata, encParams, sizeof(esp_ds_data_t));
+                dumpBuffer("<cipherdata=", cipherdata, sizeof(cipherdata));
 
+                hasPubKey = true;
+                hasCipherdata = true;
+
+                printf("<OK\n");
+
+            } else if (startsWith(buffer, "LOAD-EFUSE", i)) {
+                modelNumber = esp_efuse_read_reg(EFUSE_BLK3, 1);
+                serialNumber = esp_efuse_read_reg(EFUSE_BLK3, 1);
+                printf("<DONE\n");
+
+            } else if (startsWith(buffer, "LOAD-NVS", i)) {
+                uint8_t blob[sizeof(esp_ds_data_t)];
+
+                size_t olen = 64;
+                int ret = nvs_get_blob(nvs, "attest", blob, &olen);
+                if (ret && olen == 64) {
+                    memcpy(attest, blob, olen);
+                    dumpBuffer("<nvs.attest=", attest, olen);
+                    hasAttest = true;
+                }
+
+                olen = 384;
+                ret = nvs_get_blob(nvs, "pubkey-n", blob, &olen);
+                if (ret && olen == 384) {
+                    memcpy(pubkeyN, blob, olen);
+                    dumpBuffer("<nvs.pubkey.N=", pubkeyN, olen);
+                    hasPubKey = true;
+                }
+
+                olen = sizeof(esp_ds_data_t);
+                ret = nvs_get_blob(nvs, "cipherdata", blob, &olen);
+                if (ret && olen == sizeof(esp_ds_data_t)) {
+                    memcpy(cipherdata, blob, olen);
+                    dumpBuffer("<nvs.cipherdata=", cipherdata, olen);
+                    hasCipherdata = true;
+                }
+
+                printf("<DONE\n");
+
+            } else if (startsWith(buffer, "NOP", i)) {
                 printf("<OK\n");
 
             } else if (startsWith(buffer, "PING", i)) {
                 readyCount = 0;
                 printf("<OK\n");
 
+            } else if (startsWith(buffer, "RESET", i)) {
+                printf("<OK\n");
+
+                delay(1000);
+                esp_restart();
+                while (1) { delay(1000); }
+
             } else if (startsWith(buffer, "SET-ATTEST=", i)) {
-                if (length != 128) {
+                if (length != 2 * sizeof(attest)) {
                     printf("! SET-ATTEST invalid length\n");
                     printf("<ERROR\n");
 
                     offset = 0; buffer[0] = 0;
                     break;
                 }
+
                 ret = readBuffer(attest, &buffer[start], length);
+
+                hasAttest = true;
+
+                printf("<OK\n");
+
+            } else if (startsWith(buffer, "SET-CIPHERDATA=", i)) {
+                if (length != 2 * sizeof(cipherdata)) {
+                    printf("! SET-ATTEST invalid parameter length\n");
+                    printf("<ERROR\n");
+
+                    offset = 0; buffer[0] = 0;
+                    break;
+                }
+
+                ret = readBuffer(cipherdata, &buffer[start], length);
+
+                hasCipherdata = true;
 
                 printf("<OK\n");
 
@@ -446,6 +561,21 @@ void app_main() {
                 modelNumber = ret;
                 printf("<OK\n");
 
+            } else if (startsWith(buffer, "SET-PUBKEYN=", i)) {
+                if (length != 2 * sizeof(pubkeyN)) {
+                    printf("! SET-PUBKEYN invalid parameter length\n");
+                    printf("<ERROR\n");
+
+                    offset = 0; buffer[0] = 0;
+                    break;
+                }
+
+                ret = readBuffer(pubkeyN, &buffer[start], length);
+
+                hasPubKey = true;
+
+                printf("<OK\n");
+
             } else if (startsWith(buffer, "SET-SERIAL=", i)) {
                 ret = readNumber(&buffer[start], length);
                 if (ret <= 0) {
@@ -459,42 +589,41 @@ void app_main() {
                 printf("<OK\n");
 
             } else if (startsWith(buffer, "STIR-ENTROPY=", i)) {
-                if (cipherData != NULL) {
-                    printf("! GEN-KEY already called\n");
-                    printf("<ERROR\n");
-
-                    offset = 0; buffer[0] = 0;
-                    break;
-                }
                 stir(entropy, sizeof(entropy), (uint8_t*)&buffer[start], length);
                 printf("<OK\n");
 
             } else if (startsWith(buffer, "STIR-IV=", i)) {
-                if (cipherData != NULL) {
-                    printf("! GEN-KEY already called\n");
-                    printf("<ERROR\n");
-
-                    offset = 0; buffer[0] = 0;
-                    break;
-                }
                 stir(iv, sizeof(iv), (uint8_t*)&buffer[start], length);
                 printf("<OK\n");
 
 
             } else if (startsWith(buffer, "STIR-KEY=", i)) {
-                if (cipherData != NULL) {
-                    printf("! GEN-KEY already called\n");
-                    printf("<ERROR\n");
-
-                    offset = 0; buffer[0] = 0;
-                    break;
-                }
                 stir(key, sizeof(key), (uint8_t*)&buffer[start], length);
                 printf("<OK\n");
 
+            } else if (startsWith(buffer, "VERSION", i)) {
+                printf("<version=1\n");
+                printf("<OK\n");
+
             } else if (startsWith(buffer, "WRITE", i)) {
-                if (cipherData == NULL) {
-                    printf("! GEN-KEY not called\n");
+                bool error = false;
+
+                if (!hasAttest) {
+                    printf("! WRITE missing attest (use LOAD-NVS or SET-ATTEST)\n");
+                    error = true;
+                }
+
+                if (!hasCipherdata) {
+                    printf("! WRITE missing cipherdata (use LOAD-NVS or SET-CIPHERDATA)\n");
+                    error = true;
+                }
+
+                if (!hasPubKey) {
+                    printf("! WRITE missing key (use GEN-KEY or SET-PUBKEYN)\n");
+                    error = true;
+                }
+
+                if (error) {
                     printf("<ERROR\n");
 
                     offset = 0; buffer[0] = 0;
@@ -504,13 +633,10 @@ void app_main() {
                 ret = nvs_set_blob(nvs, "attest", attest, sizeof(attest));
                 if (ret) { panic("failed to write attest", ret); }
 
-                uint8_t encN[KEY_SIZE / 8];
-                ret = mbedtls_mpi_write_binary(&keypair.N, encN, sizeof(encN));
-                if (ret) { panic("failed to write encN", ret); }
-                ret = nvs_set_blob(nvs, "pubkey-n", encN, sizeof(encN));
+                ret = nvs_set_blob(nvs, "pubkey-n", pubkeyN, sizeof(pubkeyN));
                 if (ret) { panic("failed to write pubkey-n", ret); }
 
-                ret = nvs_set_blob(nvs, "cipherdata", cipherData, sizeof(esp_ds_data_t) );
+                ret = nvs_set_blob(nvs, "cipherdata", cipherdata, sizeof(esp_ds_data_t) );
                 if (ret) { panic("failed to write cipherdata", ret); }
 
                 printf("<OK\n");
@@ -524,11 +650,154 @@ void app_main() {
             break;
         }
     }
+}
 
-    //heap_caps_free(cipherData);
+#define DISPLAY_BUS        (FfxDisplaySpiBus2)
+#define PIN_DISPLAY_DC     (4)
+#define PIN_DISPLAY_RESET  (5)
+
+void render_scene(uint8_t *fragment, uint32_t y0, void *context) {
+    FfxScene scene = context;
+    ffx_scene_render(scene, fragment, y0, FfxDisplayFragmentHeight);
+}
+
+void splash_screen() {
+    int ret = nvs_flash_init_partition("attest");
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        panic("failed to init attest partition", ret);
+    }
+
+    nvs_handle_t nvs;
+    ret = nvs_open_from_partition("attest", "secure", NVS_READONLY, &nvs);
+    if (ret) { panic("failed to open attest partition", ret); }
+
+    FfxScene scene = ffx_scene_init(128);
+    FfxNode root = ffx_scene_root(scene);
+
+    FfxNode fill = ffx_scene_createFill(scene, ffx_color_rgb(0, 0, 0, 0x20));
+    ffx_scene_appendChild(root, fill);
+
+    FfxDisplayContext display = ffx_display_init(DISPLAY_BUS, PIN_DISPLAY_DC,
+      PIN_DISPLAY_RESET, FfxDisplayRotationRibbonRight, render_scene, scene);
+    printf("[app] init display\n");
+
+    char strModel[20];
+    char strSerial[20];
+    char strVerify[20];
+
+   {
+        uint32_t model = esp_efuse_read_reg(EFUSE_BLK3, 1);
+        if ((model >> 8) == 1) {
+            snprintf(strModel, sizeof(strModel), "Pixie (rev.%ld)", model & 0xff);
+        } else {
+            snprintf(strModel, sizeof(strModel), "Model: unknown (%ld)", model);
+        }
+        FfxNode text = ffx_scene_createText(scene, strModel, strlen(strModel));
+        ffx_scene_appendChild(root, text);
+        FfxPoint *point = ffx_scene_nodePosition(text);
+        point->x = 10;
+        point->y = 120;
+    }
+
+    {
+        uint32_t serial = esp_efuse_read_reg(EFUSE_BLK3, 2);
+        snprintf(strSerial, sizeof(strSerial), "S/N: %ld", serial);
+        FfxNode text = ffx_scene_createText(scene, strSerial, strlen(strSerial));
+        ffx_scene_appendChild(root, text);
+        FfxPoint *point = ffx_scene_nodePosition(text);
+        point->x = 10;
+        point->y = 150;
+    }
+
+    {
+        esp_ds_data_t *cipherdata = heap_caps_malloc(sizeof(esp_ds_data_t), MALLOC_CAP_DMA);
+        memset(cipherdata, 0, sizeof(esp_ds_data_t));
+
+        size_t olen = sizeof(esp_ds_data_t);
+        nvs_get_blob(nvs, "cipherdata", cipherdata, &olen);
+
+        uint8_t digest[384];
+        memset(digest, 0x42, sizeof(digest));
+        digest[0] = 0xff;
+        //esp_fill_random(digest, 384);
+
+        uint8_t sig[384];
+        memset(sig, 0, sizeof(sig));
+
+        ret = esp_ds_sign(digest, cipherdata, ATTEST_HMAC_KEY, sig);
+
+        reverseBytes(digest, sizeof(digest));
+
+        mbedtls_mpi mpiResult, mpiSig, mpiE, mpiN, mpiRR;
+
+        mbedtls_mpi_init(&mpiResult);
+        mbedtls_mpi_init(&mpiSig);
+        mbedtls_mpi_init(&mpiE);
+        mbedtls_mpi_init(&mpiN);
+        mbedtls_mpi_init(&mpiRR);
+
+        reverseBytes(sig, sizeof(sig));
+        mbedtls_mpi_read_binary(&mpiSig, sig, sizeof(sig));
+
+        uint8_t n[384];
+        olen = 384;
+        nvs_get_blob(nvs, "pubkey-n", n, &olen);
+        mbedtls_mpi_read_binary(&mpiN, n, olen);
+
+        mbedtls_mpi_read_string(&mpiE, 10, "65537");
+
+        mbedtls_mpi_exp_mod(&mpiResult, &mpiSig, &mpiE, &mpiN, &mpiRR);
+
+        uint8_t result[384];
+        mbedtls_mpi_write_binary(&mpiResult, result, sizeof(result));
+
+        int miss = -1;
+        for (int i = 0; i < sizeof(result); i++) {
+            if (result[i] != digest[i]) {
+                miss = 0;
+                break;
+            }
+        }
+
+        if (miss >= 0) {
+            snprintf(strVerify, sizeof(strVerify), "Verify: bad %d", miss);
+        } else {
+            snprintf(strVerify, sizeof(strVerify), "Verify: ok");
+        }
+
+        FfxNode text = ffx_scene_createText(scene, strVerify, strlen(strVerify));
+        ffx_scene_appendChild(root, text);
+        FfxPoint *point = ffx_scene_nodePosition(text);
+        point->x = 10;
+        point->y = 180;
+    }
+
+    TickType_t lastFrameTime = ticks();
+
+    ffx_scene_sequence(scene);
 
     while (1) {
-        printf("<DONE\n");
-        delay(10000);
+        uint32_t frameDone = ffx_display_renderFragment(display);
+
+        if (frameDone) {
+            //ffx_scene_sequence(scene);
+            break;
+            /*
+            BaseType_t didDelay = xTaskDelayUntil(&lastFrameTime, 1000 / 60);
+            if (didDelay == pdFALSE) {
+                delay(1);
+                lastFrameTime = xTaskGetTickCount();
+            }
+            */
+        }
     }
+}
+
+void app_main() {
+    uint32_t version = esp_efuse_read_reg(EFUSE_BLK3, 0);
+    if (version) { splash_screen(); }
+
+    provision_repl();
+
+    while (1) { delay(10000); }
 }
