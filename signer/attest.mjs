@@ -1,5 +1,5 @@
 import {
-    hexlify, sha256, verifyMessage, zeroPadValue
+    getBytes, hexlify, sha256, verifyMessage, zeroPadValue
 } from "ethers";
 
 
@@ -12,24 +12,40 @@ export function getModel(model) {
     return `unknown model 0x${ model.toString(hex) }`;
 }
 
-export function verify(proof) {
-    let offset = 0;
+function getMessage(model, serial, pubkey) {
+    return `model=${ toHex(model, 4) } serial=${ toHex(serial, 4) } pubkey=${ toHex(pubkey, 384) }`
+    //`model=${ toHex(model, 4) } serial=${ toHex(serial, 4) } pubkey=${ toHex(pubkeyN, 384) }`;
+}
 
-    const getBytes = function(_length) {
-        const start = offset * 2;
-        const end = start + _length * 2;
-        offset += _length
-        return "0x" + proof.substring(start, end);
+export function compute(model, serial, pubkey) {
+    const message = getMessage(model, serial, pubkey);
+    log.log({ message });
+
+    const attest = wallet.signMessageSync(message);
+    log.log({ attest });
+    log.set("attest", attest);
+
+    return Signature.from(attest).compactSerialized.substring(2);
+}
+
+export function verify(_proof) {
+    const proof = getBytes(_proof);
+
+    let offset = 0;
+    const readBytes = function(length) {
+        const result = hexlify(proof.slice(offset, offset + length));
+        offset += length;
+        return result;
     };
 
-    const version = getBytes(1);
-    const nonceRand = getBytes(7);
-    const nonce = getBytes(8);
-    const model = getBytes(4);
-    const serial = getBytes(4);
-    const pubkeyN = getBytes(384);
-    const attestation = getBytes(64);
-    const sig = getBytes(384);
+    const version = readBytes(1);
+    const nonceRand = readBytes(7);
+    const nonce = readBytes(8);
+    const model = readBytes(4);
+    const serial = readBytes(4);
+    const pubkeyN = readBytes(384);
+    const attestation = readBytes(64);
+    const sig = readBytes(384);
 
     // Check the version is supported
     if (version !== "0x01") {
@@ -37,13 +53,15 @@ export function verify(proof) {
     }
 
     // Check the attestation is correct for the model and serial
-    const message = `model=${ toHex(model, 4) } serial=${ toHex(serial, 4) } pubkey=${ toHex(pubkeyN, 384) }`;
-    if (address !== verifyMessage(message, attestation)) {
-        throw new Error("invalid attestation; address not signing authority");
+    const message = getMessage(model, serial, pubkeyN);
+    const recovered = verifyMessage(message, attestation);
+    if (address !== recovered) {
+        throw new Error(`invalid attestation; address not signing authority (${ recovered } != ${ address })`);
     }
 
     // Compute the RSA challenge hash
-    const hash = sha256("0x" + proof.substring(0, proof.length - 2 * 384));
+    const challenge = proof.slice(0, proof.length - 384);
+    const hash = sha256(challenge);
 
     // Check the RSA maths are correct
     // See: https://cryptobook.nakov.com/digital-signatures/rsa-sign-verify-examples

@@ -44,19 +44,19 @@ export class FireflyRepl {
 
         await stall(500);
 
-        await this._sendCommand(`NOP`, true);
+        await this._sendCommand(`NOP`);
 
         await stall(100);
 
         this._ready = true;
     }
 
-    async sendCommand(command, ignoreError) {
+    async sendCommand(command) {
         if (!this._ready) { throw new Error("not ready; use `await .waitReady()`"); }
-        return this._sendCommand(command, ignoreError);
+        return this._sendCommand(command);
     }
 
-    async _sendCommand(command, ignoreError) {
+    async _sendCommand(command) {
         const result = { };
         const errors = [ ];
         this._device.writeLine(command);
@@ -66,7 +66,6 @@ export class FireflyRepl {
 
             if (line === "<OK") { break; }
             if (line === "<ERROR") {
-                if (ignoreError) { break; }
                 if (errors.length) {
                     throw new Error(errors.join("; "));
                 } else {
@@ -77,7 +76,13 @@ export class FireflyRepl {
             const match = line.match(/^<([a-zA-Z0-9._-]*)=(.*)$/);
             if (match) {
                 // REPL keyed output parameter
-                result[match[1]] = match[2];
+                let value = match[2];
+                if (value.match(/^(([0-9a-f][0-9a-f])*) +\([0-9]+ bytes\)$/i)) {
+                    value = "0x" + value.split(" ")[0];
+                } else if (value.match(/^[0-9]+$/)) {
+                    value = parseInt(value);
+                }
+                result[match[1]] = value;
             } else if (line.startsWith("?")) {
                 // REPL info
                 thiw._writeLog(`[ INFO ] ${ line.substring(1).trim() }`);
