@@ -189,7 +189,7 @@ void provision_repl() {
 
     int readyCount = 0;
 
-    char buffer[2048];
+    char buffer[4096];
 
     size_t offset = 0;
     buffer[0] = 0;
@@ -209,7 +209,8 @@ void provision_repl() {
 
         // Not enough space left in the buffer; purge it
         if (sizeof(buffer) - offset - 1 < 1) {
-            printf("[WARNING] buffer exceeded length, purging\n");
+            printf("! buffer exceeded length, purging\n");
+            printf("<ERROR\n");
 
             // Purge the input buffer
             for (uint32_t i = 0; i < 128; i++) {
@@ -258,7 +259,7 @@ void provision_repl() {
                 bool error = false;
 
                 if (length != 16) {
-                    printf("! ATTEST bad parameter length\n");
+                    printf("! ATTEST bad parameter length (%d != 16)\n", length);
                     error = true;
                 }
 
@@ -272,17 +273,17 @@ void provision_repl() {
                     error = true;
                 }
 
-                if (hasPubKey) {
+                if (!hasPubKey) {
                     printf("! ATTEST no pubkey present (use GEN-KEY, LOAD-NVS or SET-PUBKEYN)\n");
                     error = true;
                 }
 
-                if (hasCipherdata) {
+                if (!hasCipherdata) {
                     printf("! ATTEST no cipherdata present (use GEN-KEY, LOAD-NVS or SET-CIPHERDATA)\n");
                     error = true;
                 }
 
-                if (hasAttest) {
+                if (!hasAttest) {
                     printf("! ATTEST no attest present (use SET-ATTEST or LOAD-NVS)\n");
                     error = true;
                 }
@@ -316,7 +317,8 @@ void provision_repl() {
                 esp_fill_random(&attestation[offset], 7);
                 offset += 7;
 
-                readBuffer(&attestation[offset], &buffer[start], length);
+                ret = readBuffer(&attestation[offset], &buffer[start], length);
+                if (ret < 0) { panic("! ATTEST invalid data", ret); }
                 offset += length / 2;
 
                 //uint32_t model = esp_efuse_read_reg(EFUSE_BLK3, 1);
@@ -473,44 +475,54 @@ void provision_repl() {
 
             } else if (startsWith(buffer, "LOAD-EFUSE", i)) {
                 modelNumber = esp_efuse_read_reg(EFUSE_BLK3, 1);
-                serialNumber = esp_efuse_read_reg(EFUSE_BLK3, 1);
-                printf("<DONE\n");
+                serialNumber = esp_efuse_read_reg(EFUSE_BLK3, 2);
+                printf("<OK\n");
 
             } else if (startsWith(buffer, "LOAD-NVS", i)) {
-                uint8_t blob[sizeof(esp_ds_data_t)];
 
-                size_t olen = 64;
-                int ret = nvs_get_blob(nvs, "attest", blob, &olen);
-                if (ret && olen == 64) {
-                    memcpy(attest, blob, olen);
-                    dumpBuffer("<nvs.attest=", attest, olen);
-                    hasAttest = true;
+                {
+                    size_t olen = 64;
+                    uint8_t blob[olen];
+                    int ret = nvs_get_blob(nvs, "attest", blob, &olen);
+                    if (!ret && olen == 64) {
+                        memcpy(attest, blob, olen);
+                        dumpBuffer("<nvs.attest=", attest, olen);
+                        hasAttest = true;
+                    }
                 }
 
-                olen = 384;
-                ret = nvs_get_blob(nvs, "pubkey-n", blob, &olen);
-                if (ret && olen == 384) {
-                    memcpy(pubkeyN, blob, olen);
-                    dumpBuffer("<nvs.pubkey.N=", pubkeyN, olen);
-                    hasPubKey = true;
+                {
+                    size_t olen = 384;
+                    uint8_t blob[olen];
+                    ret = nvs_get_blob(nvs, "pubkey-n", blob, &olen);
+                    if (!ret && olen == 384) {
+                        memcpy(pubkeyN, blob, olen);
+                        dumpBuffer("<nvs.pubkey.N=", pubkeyN, olen);
+                        hasPubKey = true;
+                    }
                 }
 
-                olen = sizeof(esp_ds_data_t);
-                ret = nvs_get_blob(nvs, "cipherdata", blob, &olen);
-                if (ret && olen == sizeof(esp_ds_data_t)) {
-                    memcpy(cipherdata, blob, olen);
-                    dumpBuffer("<nvs.cipherdata=", cipherdata, olen);
-                    hasCipherdata = true;
+                {
+                    size_t olen = sizeof(esp_ds_data_t);
+                    uint8_t blob[olen];
+                    ret = nvs_get_blob(nvs, "cipherdata", blob, &olen);
+                    if (!ret && olen == sizeof(esp_ds_data_t)) {
+                        memcpy(cipherdata, blob, olen);
+                        dumpBuffer("<nvs.cipherdata=", cipherdata, olen);
+                        hasCipherdata = true;
+                    }
                 }
 
-                printf("<DONE\n");
+                printf("<OK\n");
 
             } else if (startsWith(buffer, "NOP", i)) {
                 printf("<OK\n");
 
             } else if (startsWith(buffer, "PING", i)) {
                 readyCount = 0;
-                printf("<OK\n");
+                printf("\n<OK\n");
+                // @TODO: PING often gets clobbered so we need the newline;
+                //        we should proably do this for everything
 
             } else if (startsWith(buffer, "RESET", i)) {
                 printf("<OK\n");
@@ -521,7 +533,7 @@ void provision_repl() {
 
             } else if (startsWith(buffer, "SET-ATTEST=", i)) {
                 if (length != 2 * sizeof(attest)) {
-                    printf("! SET-ATTEST invalid length\n");
+                    printf("! SET-ATTEST invalid length %d != %d\n", length, 2 * sizeof(attest));
                     printf("<ERROR\n");
 
                     offset = 0; buffer[0] = 0;
@@ -529,6 +541,7 @@ void provision_repl() {
                 }
 
                 ret = readBuffer(attest, &buffer[start], length);
+                if (ret < 0) { panic("! SET-ATTEST invalid data", ret); }
 
                 hasAttest = true;
 
@@ -536,7 +549,9 @@ void provision_repl() {
 
             } else if (startsWith(buffer, "SET-CIPHERDATA=", i)) {
                 if (length != 2 * sizeof(cipherdata)) {
-                    printf("! SET-ATTEST invalid parameter length\n");
+                    printf("! SET-CIPHERDATA bad parameter length (%d != %d)\n",
+                      length, 2 * sizeof(cipherdata));
+                    printf("? FOO=%s\n", &buffer[start]);
                     printf("<ERROR\n");
 
                     offset = 0; buffer[0] = 0;
@@ -544,6 +559,7 @@ void provision_repl() {
                 }
 
                 ret = readBuffer(cipherdata, &buffer[start], length);
+                if (ret < 0) { panic("! SET-CIPHERDATA invalid data", ret); }
 
                 hasCipherdata = true;
 
@@ -563,7 +579,8 @@ void provision_repl() {
 
             } else if (startsWith(buffer, "SET-PUBKEYN=", i)) {
                 if (length != 2 * sizeof(pubkeyN)) {
-                    printf("! SET-PUBKEYN invalid parameter length\n");
+                    printf("! SET-PUBKEYN bad parameter length (%d != %d)\n",
+                      length, 2 * sizeof(pubkeyN));
                     printf("<ERROR\n");
 
                     offset = 0; buffer[0] = 0;
@@ -571,6 +588,7 @@ void provision_repl() {
                 }
 
                 ret = readBuffer(pubkeyN, &buffer[start], length);
+                if (ret < 0) { panic("! SET-PUBKEYN invalid data", ret); }
 
                 hasPubKey = true;
 
