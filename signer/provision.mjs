@@ -4,26 +4,27 @@ import { join } from "path";
 
 import { read } from 'read';
 
-//import { SerialPort } from "../../firefly-js/lib.esm/node-specific.js";
-//import { DeviceEsp32c3 } from "../../firefly-js/lib.esm/device-esp32c3.js";
-
 import {
-    getNumber, hexlify, id, randomBytes, toBeArray, zeroPadValue,
-    Mnemonic, Signature, HDNodeWallet
+    getNumber, hexlify, randomBytes,
+    Mnemonic, HDNodeWallet
 } from "ethers";
 
 import { Log } from "./log.mjs";
 import { FireflyRepl } from "./repl.mjs";
-import { verify } from "./attest.mjs";
+import { compute, verify } from "./attest.mjs";
 
 
 const FOLDER = "/Volumes/FireflyProvision";
+
+function readCred(filename) {
+    return fs.readFileSync(join(FOLDER, "creds", filename)).toString().trim();
+}
 
 (async function() {
     const model = getNumber(await read({ prompt: "Model Number:" }));
     console.log(`MODEL: ${ model } (0x${ model.toString(16) })`);
 
-    const phrase = readFile("creds/mnemonic.txt");
+    const phrase = readCred("mnemonic.txt");
 
     const password = await read({
         prompt: "password: ",
@@ -31,7 +32,7 @@ const FOLDER = "/Volumes/FireflyProvision";
         replace: "*"
     });
 
-    const address = readFile("creds/address.txt");
+    const address = readCred("address.txt");
 
     const mnemonic = Mnemonic.fromPhrase(phrase, password);
     const wallet = HDNodeWallet.fromMnemonic(mnemonic);
@@ -43,6 +44,8 @@ const FOLDER = "/Volumes/FireflyProvision";
 
     while (true) {
         const log = Log.getNextLog(model);
+
+        const serial = log.get("serial");
 
         await read({ prompt: `Burn Serial Number: ${ serial } [press enter]` });
 
@@ -59,48 +62,45 @@ const FOLDER = "/Volumes/FireflyProvision";
         try {
             await repl.waitReady();
 
-            log.log(`READY; beginning serial=${ serial } filename=${ JSON.stringify(filename) }`);
+            log.log(`READY; beginning serial=${ serial } filename=${ JSON.stringify(log.filename) }`);
 
-            const { version } = await sendCommand(`VERSION`);
-            if (version !== "1") {
+            const { version } = await repl.sendCommand(`VERSION`);
+            if (version !== 1) {
                 throw new Error(`unsupported version: ${ version }`);
             }
 
-            await sendCommand(`SET-MODEL=${ model }`);
-            await sendCommand(`SET-SERIAL=${ serial }`);
+            await repl.sendCommand(`SET-MODEL=${ model }`);
+            await repl.sendCommand(`SET-SERIAL=${ serial }`);
 
-            const dump = await sendCommand(`DUMP`);
+            const dump = await repl.sendCommand(`DUMP`);
             log.log({ dump });
 
-            await sendCommand(`STIR-ENTROPY=${ hexlify(randomBytes(32)) }`);
-            await sendCommand(`STIR-IV=${ hexlify(randomBytes(32)) }`);
-            await sendCommand(`STIR-KEY=${ hexlify(randomBytes(32)) }`);
+            await repl.sendCommand(`STIR-ENTROPY=${ hexlify(randomBytes(32)) }`);
+            await repl.sendCommand(`STIR-IV=${ hexlify(randomBytes(32)) }`);
+            await repl.sendCommand(`STIR-KEY=${ hexlify(randomBytes(32)) }`);
 
-            const keypair = await sendCommand(`GEN-KEY`);
+            const keypair = await repl.sendCommand(`GEN-KEY`);
             log.log({ keypair });
-            log.set("pubkeyN", keypair["pubkey.N"].split(" ")[0]);
-            log.set("cipherData", keypair["cipherdata"].split(" ")[0]);
+            log.set("pubkeyN", keypair["pubkey.N"]);
+            log.set("cipherData", keypair["cipherdata"]);
 
-            const message = `model=${ toHex(model, 4) } serial=${ toHex(serial, 4) } pubkey=${ toHex("0x" + N, 384) }`
-            log.log({ message });
-
-            const attest = wallet.signMessageSync(message);
+            const attest = compute(wallet, model, serial, keypair["pubkey.N"]);
             log.log({ attest });
             log.set("attest", attest);
 
-            const sig = Signature.from(attest).compactSerialized.substring(2);
-            log.log(await sendCommand(`SET-ATTEST=${ sig }`));
+            log.log(await repl.sendCommand(`SET-ATTEST=${ attest.substring(2) }`));
 
-            log.log(await sendCommand(`WRITE`));
+            log.log({ write: await repl.sendCommand(`WRITE`) });
 
-            log.log(await sendCommand(`BURN`));
+            log.log({ burn: await repl.sendCommand(`BURN`) });
 
-/*
-            const proof = await sendCommand(`ATTEST=0123456789abcdef`);
+            log.log({ dump: await repl.sendCommand(`DUMP`) });
+
+            const proof = await repl.sendCommand(`ATTEST=0123456789abcdef`);
             console.log({ proof });
             console.log(verify(proof.attest));
-*/
-            log.log({ dump: await sendCommand(`DUMP`, true) });
+
+            await repl.sendCommand(`RESET`);
 
         } catch (error) {
             log.log({ error });

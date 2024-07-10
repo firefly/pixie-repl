@@ -77,7 +77,7 @@ export class FireflyRepl {
             if (match) {
                 // REPL keyed output parameter
                 let value = match[2];
-                if (value.match(/^(([0-9a-f][0-9a-f])*) +\([0-9]+ bytes\)$/i)) {
+                if (value.match(/^(([0-9a-f][0-9a-f])*) \([0-9]+ bytes\)$/i)) {
                     value = "0x" + value.split(" ")[0];
                 } else if (value.match(/^[0-9]+$/)) {
                     value = parseInt(value);
@@ -85,7 +85,7 @@ export class FireflyRepl {
                 result[match[1]] = value;
             } else if (line.startsWith("?")) {
                 // REPL info
-                thiw._writeLog(`[ INFO ] ${ line.substring(1).trim() }`);
+                this._writeLog(`[ INFO ] ${ line.substring(1).trim() }`);
             } else if (line.startsWith("!")) {
                 // REPL error
                 this._writeLog(`[ ERROR ] ${ line.substring(1).trim() }`);

@@ -1,5 +1,6 @@
 import {
-    getBytes, hexlify, sha256, verifyMessage, zeroPadValue
+    Signature,
+    getBytes, hexlify, sha256, toBeArray, verifyMessage, zeroPadValue
 } from "ethers";
 
 
@@ -17,15 +18,10 @@ function getMessage(model, serial, pubkey) {
     //`model=${ toHex(model, 4) } serial=${ toHex(serial, 4) } pubkey=${ toHex(pubkeyN, 384) }`;
 }
 
-export function compute(model, serial, pubkey) {
+export function compute(wallet, model, serial, pubkey) {
     const message = getMessage(model, serial, pubkey);
-    log.log({ message });
-
     const attest = wallet.signMessageSync(message);
-    log.log({ attest });
-    log.set("attest", attest);
-
-    return Signature.from(attest).compactSerialized.substring(2);
+    return Signature.from(attest).compactSerialized;
 }
 
 export function verify(_proof) {

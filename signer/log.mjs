@@ -90,7 +90,9 @@ export class Log {
 
         const serial = latest + 1;
 
-        const result = Log.getLog(model, serial);
+        const filename = Log.getFilename(model, serial);
+
+        const result = new Log(filename);
         result.set("model", model);
         result.set("serial", serial);
         return result;
@@ -132,5 +134,3 @@ for (const filename of fs.readdirSync(join(FOLDER, "devices"))) {
     log.save();
 }
 */
-
-console.log(Log.getLog(0x106, 5));
