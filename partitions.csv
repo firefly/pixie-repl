@@ -7,7 +7,7 @@
 # Name,    Type,  SubType,   Offset,        Size, Flags
 
 # The device attestation data (28kb)
-attest,    data,   nvs,      0x009000,   0x007000
+attest,    data,   nvs,      0x009000,   0x007000,
 
 factory,   app,    factory,  0x010000,   0x700000,
 
