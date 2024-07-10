@@ -32,7 +32,7 @@ void dumpBuffer(char *header, uint8_t *buffer, size_t length) {
     for (uint32_t i = 0; i < length; i++) {
         printf("%c%c", hex[buffer[i] >> 4], hex[buffer[i] & 0x0f]);
     }
-    printf("  (%d bytes)\n", length);
+    printf(" (%d bytes)\n", length);
 }
 
 void dumpArray(char *header, uint8_t *buffer, size_t length) {

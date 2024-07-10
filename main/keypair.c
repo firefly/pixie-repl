@@ -108,7 +108,7 @@ void keypair_dumpMpi(char *header, mbedtls_mpi* value) {
     int ret = mbedtls_mpi_write_string(value, 16, str, sizeof(str), &olen);
 
     if (ret == 0) {
-        printf("%s%s (length=%d bits)\n", header, str, (olen - 1) * 4);
+        printf("%s%s (%d bytes)\n", header, str, (olen - 1) * 4 / 8);
     } else {
         printf("%s[FAILED]\n", header);
     }

@@ -14,6 +14,8 @@
 #include "firefly-display.h"
 #include "firefly-scene.h"
 
+#include "image-logo.h"
+
 #define DEVICE_INFO_BLOCK   (EFUSE_BLK3)
 #define ATTEST_SLOT         (2)
 #define ATTEST_KEY_BLOCK    (EFUSE_BLK_KEY2)
@@ -146,20 +148,9 @@ int dumpNvs(nvs_handle_t nvs, char *key, size_t length) {
     return olen;
 }
 
-void provision_repl() {
+void provision_repl(nvs_handle_t nvs) {
     int ret = 0;
     printf("? start provisioning\n");
-
-    ret = nvs_flash_init_partition("attest");
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        panic("failed to init attest partition", ret);
-    }
-
-    nvs_handle_t nvs;
-
-    ret = nvs_open_from_partition("attest", "secure", NVS_READWRITE, &nvs);
-    if (ret) { panic("failed to open attest partition", ret); }
-
 
     uint8_t pubkeyN[384] = { 0 };
     bool hasPubKey = false;
@@ -394,7 +385,7 @@ void provision_repl() {
                     valueCheck |= value;
                     printf("%08lx", value);
                 }
-                printf(" (length=32 bytes)\n");
+                printf(" (32 bytes)\n");
 
                 printf("<efuse.blk3.burned=%d\n", valueCheck != 0);
                 if (valueCheck) {
@@ -679,25 +670,28 @@ void render_scene(uint8_t *fragment, uint32_t y0, void *context) {
     ffx_scene_render(scene, fragment, y0, FfxDisplayFragmentHeight);
 }
 
-void splash_screen() {
-    int ret = nvs_flash_init_partition("attest");
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        panic("failed to init attest partition", ret);
-    }
-
-    nvs_handle_t nvs;
-    ret = nvs_open_from_partition("attest", "secure", NVS_READONLY, &nvs);
-    if (ret) { panic("failed to open attest partition", ret); }
+void splash_screen(nvs_handle_t nvs) {
 
     FfxScene scene = ffx_scene_init(128);
+
+    FfxDisplayContext display = ffx_display_init(DISPLAY_BUS, PIN_DISPLAY_DC,
+      PIN_DISPLAY_RESET, FfxDisplayRotationRibbonRight, render_scene, scene);
+
+    // Blank screen
+    while (!ffx_display_renderFragment(display));
+
     FfxNode root = ffx_scene_root(scene);
 
     FfxNode fill = ffx_scene_createFill(scene, ffx_color_rgb(0, 0, 0, 0x20));
     ffx_scene_appendChild(root, fill);
 
-    FfxDisplayContext display = ffx_display_init(DISPLAY_BUS, PIN_DISPLAY_DC,
-      PIN_DISPLAY_RESET, FfxDisplayRotationRibbonRight, render_scene, scene);
-    printf("[app] init display\n");
+    {
+        FfxNode logo = ffx_scene_createImage(scene, image_logo, sizeof(image_logo));
+        ffx_scene_appendChild(root, logo);
+        FfxPoint *point = ffx_scene_nodePosition(logo);
+        point->x = 82;
+        point->y = 10;
+    }
 
     char strModel[20];
     char strSerial[20];
@@ -714,7 +708,7 @@ void splash_screen() {
         ffx_scene_appendChild(root, text);
         FfxPoint *point = ffx_scene_nodePosition(text);
         point->x = 10;
-        point->y = 120;
+        point->y = 130;
     }
 
     {
@@ -724,7 +718,7 @@ void splash_screen() {
         ffx_scene_appendChild(root, text);
         FfxPoint *point = ffx_scene_nodePosition(text);
         point->x = 10;
-        point->y = 150;
+        point->y = 160;
     }
 
     {
@@ -742,7 +736,7 @@ void splash_screen() {
         uint8_t sig[384];
         memset(sig, 0, sizeof(sig));
 
-        ret = esp_ds_sign(digest, cipherdata, ATTEST_HMAC_KEY, sig);
+        int ret = esp_ds_sign(digest, cipherdata, ATTEST_HMAC_KEY, sig);
 
         reverseBytes(digest, sizeof(digest));
 
@@ -787,7 +781,7 @@ void splash_screen() {
         ffx_scene_appendChild(root, text);
         FfxPoint *point = ffx_scene_nodePosition(text);
         point->x = 10;
-        point->y = 180;
+        point->y = 190;
     }
 
     TickType_t lastFrameTime = ticks();
@@ -812,10 +806,23 @@ void splash_screen() {
 }
 
 void app_main() {
-    uint32_t version = esp_efuse_read_reg(EFUSE_BLK3, 0);
-    if (version) { splash_screen(); }
 
-    provision_repl();
+    int ret = nvs_flash_init_partition("attest");
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        panic("failed to init attest partition", ret);
+    }
+
+    nvs_handle_t nvs;
+
+    ret = nvs_open_from_partition("attest", "secure", NVS_READWRITE, &nvs);
+    if (ret) {
+        panic("failed to open attest partition", ret);
+    }
+
+    uint32_t version = esp_efuse_read_reg(EFUSE_BLK3, 0);
+    if (version) { splash_screen(nvs); }
+
+    provision_repl(nvs);
 
     while (1) { delay(10000); }
 }
