@@ -22,9 +22,9 @@ import { Log } from "./log.mjs";
       parseInt(dump["efuse.serial"]));
     // @TODO: if log is missing throw device not found in database error
 
-    const attest = Signature.from(log.get("attest")).compactSerialized.substring(2);
-    const pubkeyN = log.get("pubkeyN").substring(2);
-    const cipherData = log.get("cipherData").substring(2);
+    const attest = Signature.from(log.get("attest")).compactSerialized;
+    const pubkeyN = log.get("pubkeyN");
+    const cipherData = log.get("cipherData");
 
     console.log({ attest, pubkeyN, cipherData });
 

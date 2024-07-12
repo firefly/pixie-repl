@@ -5,6 +5,19 @@ import { DeviceEsp32c3 } from "../../firefly-js/lib.esm/device-esp32c3.js";
 
 import { stall } from "./utils.mjs";
 
+const NumericCommands = [
+    "SET-MODEL",
+    "SET-SERIAL",
+];
+
+const DataCommands = [
+    "SET-ATTEST",
+    "SET-CIPHERDATA",
+    "SET-PUBKEYN",
+    "STIR-ENTROPY",
+    "STIR-IV",
+    "STIR-KEY"
+];
 
 export class FireflyRepl {
     constructor(log) {
@@ -57,6 +70,21 @@ export class FireflyRepl {
     }
 
     async _sendCommand(command) {
+        {
+            const comps = command.split("=");
+            if (comps.length === 2) {
+                let data = comps[1];
+                if (NumericCommands.indexOf(comps[0]) >= 0) {
+                    data = String(parseInt(data));
+                } else if (DataCommands.indexOf(comps[0]) >= 0) {
+                    if (data.startsWith("0x")) {
+                        data = data.substring(2);
+                    }
+                }
+                command = `${ comps[0] }=${ data }`
+            }
+        }
+
         const result = { };
         const errors = [ ];
         this._device.writeLine(command);
