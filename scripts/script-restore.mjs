@@ -43,6 +43,8 @@ import { Log } from "./log.mjs";
     const proof = await repl.sendCommand(`ATTEST=0123456789abcdef`);
     console.log(proof, verify(proof.attest));
 
+    await repl.sendCommand("RESET");
+
 })().catch((error) => {
     console.log({ error });
 });
