@@ -1,0 +1,5 @@
+{
+  "_Comment-0": "This file is for ESM; see tsconfig:module=node16",
+  "_Comment-see": "https://github.com/microsoft/TypeScript/issues/54593",
+  "type": "module"
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "./lib.commonjs"
+  },
+  "exclude": [
+    "./src.ts/bin/**/*.ts",
+    "./src.ts/_admin/**/*.ts"
+  ]
+}

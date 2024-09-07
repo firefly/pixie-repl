@@ -1,0 +1,10 @@
+.iterm2-project
+
+node_modules/**
+
+**/.DS_Store
+**/*.swp
+
+obsolete/**
+
+
