@@ -115,3 +115,13 @@ export function repeat(c: string, length: number): string {
     while (c.length < length) { c += c; }
     return c.substring(0, length);
 }
+
+const _TextEncoder = new TextEncoder();
+export function toUtf8Bytes(text: string): Uint8Array {
+    return _TextEncoder.encode(text);
+}
+
+const _TextDecoder = new TextDecoder();
+export function toUtf8String(data: Uint8Array): string {
+    return _TextDecoder.decode(data);
+}
