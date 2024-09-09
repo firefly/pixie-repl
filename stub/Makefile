@@ -54,11 +54,11 @@ SRCS = stub_flasher.c slip.c stub_commands.c stub_write_flash.c stub_io.c \
 BUILD_DIR = build
 
 STUB_ELF_32C3 = $(BUILD_DIR)/$(STUB)_32c3.elf
-STUB_PY = $(BUILD_DIR)/$(STUB).json
+STUB_JSON = $(BUILD_DIR)/$(STUB).json
 
 .PHONY: all clean embed
 
-all: $(STUB_PY)
+all: $(STUB_JSON)
 
 $(BUILD_DIR):
 	$(Q) mkdir $@
@@ -76,7 +76,7 @@ $(STUB_ELF_32C3): $(SRCS) $(BUILD_DIR) ld/stub_32c3.ld
 	@echo "  CC(32C3)   $^ -> $@"
 	$(Q) $(CROSS_32C3)gcc $(CFLAGS_ESPRISCV32) -DESP32C3=1 -Tstub_32c3.ld -Wl,-Map=$(@:.elf=.map) -o $@ $(filter %.c, $^) $(LDLIBS)
 
-$(STUB_PY): $(STUB_ELF_32C3) wrap_stub.py
+$(STUB_JSON): $(STUB_ELF_32C3) wrap_stub.py
 	@echo "  WRAP $^ -> $@"
 	$(Q) $(WRAP_STUB) --out-file $@ $(filter %.elf,$^)
 
