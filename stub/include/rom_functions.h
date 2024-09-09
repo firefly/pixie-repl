@@ -360,4 +360,6 @@ ets_ds_result_t ets_ds_encrypt_params(ets_ds_data_t *data, const void *iv,
 
 //void *memcpy(void *restrict dst, const void *restrict src, size_t n);
 char * itoa(int n, char * buffer, int radix);
+int ets_printf(const char *fmt, ...);
+
 
