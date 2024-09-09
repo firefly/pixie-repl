@@ -194,18 +194,21 @@ static int genkey() {
     // Generate the keypair
     if ((ret = mbedtls_rsa_gen_key(&rsa, _mbedtl_fill_random, NULL,
       KEY_SIZE, EXPONENT))) {
+        mbedtls_rsa_free(&rsa);
         return (ret << 4) | 1;;
     }
 
     // Store the keypair
     if ((ret = mbedtls_rsa_export(&rsa, &keypair.N, &keypair.P, &keypair.Q,
       &keypair.D, &keypair.E))) {
+        mbedtls_rsa_free(&rsa);
         return (ret << 4) | 2;;
     }
 
     // Compute and store the optimization parameters
     if ((ret = compute_rinv_mprime(keypair.key_size, &keypair.N, &keypair.Rb,
       &m_prime))) {
+        mbedtls_rsa_free(&rsa);
         return (ret << 4) | 3;;
     }
     keypair.m_prime = m_prime;
@@ -219,14 +222,17 @@ static int genkey() {
     params.length = (keypair.key_size / 32) - 1;
 
     if ((ret = copy_mpi(keypair.key_size, &keypair.N, params.M))) {
+        mbedtls_rsa_free(&rsa);
         return (ret << 4) | 4;;
     }
 
     if ((ret = copy_mpi(keypair.key_size, &keypair.D, params.Y))) {
+        mbedtls_rsa_free(&rsa);
         return (ret << 4) | 5;;
     }
 
     if ((ret = copy_mpi(keypair.key_size, &keypair.Rb, params.Rb))) {
+        mbedtls_rsa_free(&rsa);
         return (ret << 4) | 6;;
     }
 
@@ -240,6 +246,7 @@ static int genkey() {
 
     if ((ret = ets_ds_encrypt_params((ets_ds_data_t*)keypair.cipherdata, iv, &params,
       keypair.key, ETS_DS_KEY_HMAC))) {
+        mbedtls_rsa_free(&rsa);
         return (ret << 4) | 7;;
     }
 
@@ -252,12 +259,11 @@ static int genkey() {
 
     SLIP_send_frame_data_buf(pubkeyN, sizeof(pubkeyN));
 
-    dumpData("pubkey.N", pubkeyN, sizeof(pubkeyN));
+    //dumpData("pubkey.N", pubkeyN, sizeof(pubkeyN));
 
     dumpData("CIPHER", (uint8_t*)&keypair.cipherdata, sizeof(keypair.cipherdata));
 
     mbedtls_rsa_free(&rsa);
-
     return ESP_OK;
 }
 
