@@ -73,8 +73,8 @@ export function slipCheckDebug(data: Uint8Array): null | SlipDecodeResult {
 }
 */
 
-function findDebug(data: Uint8Array): number {
-    for (let i = 0; i < data.length - 2; i++) {
+function findDebug(data: Uint8Array, start: number): number {
+    for (let i = start; i < data.length - 2; i++) {
         if (hexlify(data.slice(i, i + 3)) === "c0c0c0") {
             return i;
         }
@@ -84,6 +84,7 @@ function findDebug(data: Uint8Array): number {
 
 const _TextDecoder = new TextDecoder();
 
+/*
 function _debugDecode(data: Uint8Array, offset: number): null | SlipDecodeResult {
     if (data.length < offset + 4) { return null; }
 
@@ -97,6 +98,7 @@ function _debugDecode(data: Uint8Array, offset: number): null | SlipDecodeResult
         remaining: concat([ data.slice(0, offset), data.slice(offset + 4 + length) ])
     }
 }
+*/
 
 function _slipDecode(data: Uint8Array): null | SlipDecodeResult {
     const markers = [ ];
@@ -135,11 +137,17 @@ function _slipDecode(data: Uint8Array): null | SlipDecodeResult {
  *  return ``null``.
  */
 export function slipDecode(data: Uint8Array): null | SlipDecodeResult {
-    const debug = findDebug(data);
+    const debug = findDebug(data, 0);
     if (debug === -1) { return _slipDecode(data); }
 
     const slip = _slipDecode(data.slice(0, debug));
     if (slip) { return slip; }
 
-    return _debugDecode(data, debug);
+    const debugEnd = findDebug(data, debug + 3);
+    if (debug === -1) { return null; }
+
+    return {
+        debug: _TextDecoder.decode(data.slice(debug + 4, debugEnd)),
+        remaining: concat([ data.slice(0, debug), data.slice(debugEnd + 3) ])
+    };
 }

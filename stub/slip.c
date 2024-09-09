@@ -28,69 +28,19 @@ void SLIP_send_frame_data(char ch) {
 	stub_tx_one_char(ch);
   }
 }
-static size_t _writeString(char *output, char *value) {
-    size_t length = 0;
 
-    while(value[length]) {
-        output[length] = value[length];
-        length++;
-    }
-
-    return length;
+void _SLIP_debug_begin() {
+  stub_tx_flush();
+  SLIP_send_frame_delimiter();
+  SLIP_send_frame_delimiter();
+  SLIP_send_frame_delimiter();
+  stub_tx_one_char(0);
 }
 
-void SLIP_send_debug(const char* format, ...) {
-  stub_tx_flush();
-
-  stub_tx_one_char('\xc0');
-  stub_tx_one_char('\xc0');
-  stub_tx_one_char('\xc0');
-
-  va_list args;
-  va_start(args, format);
-
-  char str[128];
-  char tmp[(sizeof(uint32_t) * 3) + 1];
-
-  size_t i = 0, o = 0;
-  while (1) {
-    char c = format[i++];
-    if (c == 0) { break; }
-
-    if (c == '%') {
-      c = format[i++];
-      switch(c) {
-        case 0:
-          break;
-        case 'd':
-          itoa(va_arg(args, int32_t), tmp, 10);;
-          o += _writeString(&str[o], tmp);
-          //o += _writeInt(&str[o], va_arg(args, int32_t));
-          continue;
-        //case 'u':
-        //  o += _writeUint(&str[o], va_arg(args, uint32_t));
-        //  continue;
-        case 's':
-          o += _writeString(&str[o], va_arg(args, char*));
-          continue;
-        case 'x':
-          itoa(va_arg(args, int32_t), tmp, 16);
-          o += _writeString(&str[o], tmp);
-          //o += _writeHex(&str[o], va_arg(args, uint32_t));
-          continue;
-      }
-    }
-
-    str[o++] = c;
-  }
-
-  va_end(args);
-
-  stub_tx_one_char(o);
-  for (int i = 0; i < o; i++) {
-    stub_tx_one_char(str[i]);
-  }
-
+void _SLIP_debug_end() {
+  SLIP_send_frame_delimiter();
+  SLIP_send_frame_delimiter();
+  SLIP_send_frame_delimiter();
   stub_tx_flush();
 }
 

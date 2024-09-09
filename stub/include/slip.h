@@ -11,6 +11,12 @@
 
 #include <stdint.h>
 
+#define SLIP_send_debug(...) \
+do {  \
+  _SLIP_debug_begin(); ets_printf(__VA_ARGS__); _SLIP_debug_end(); \
+} while (0);
+
+
 /* Send the SLIP frame begin/end delimiter. */
 void SLIP_send_frame_delimiter(void);
 
@@ -37,6 +43,9 @@ int16_t SLIP_recv_byte(char byte, slip_state_t *state);
 /* Receive a SLIP frame, with specified contents. */
 uint32_t SLIP_recv(void *pkt, uint32_t max_len);
 
-void SLIP_send_debug(const char* format, ...);
+// Internal only; used for logging debug output during an
+// in-flight SLIP packet
+void _SLIP_debug_begin();
+void _SLIP_debug_end();
 
 #endif /* SLIP_H_ */
