@@ -1,17 +1,22 @@
 import { createHash } from "crypto";
 
-import { toLeBytes, toUtf8Bytes } from "./utils.js";
-
+import { assert, toLeBytes, toUtf8Bytes } from "./utils.js";
 
 
 // # 3K for partition data (96 entries) leaves 1K in a 4K sector for signature
 const PartitionTableSize = 0xC00
 
+// Magic header for each partition
+const Magic = new Uint8Array([ 0xaa, 0x50 ]);
+
+// End marker of partitions within the partition table
 const EndMarker = new Uint8Array(16);
 EndMarker.fill(0xff);
 EndMarker[0] = 0xeb;
 EndMarker[1] = 0xeb;
-//MD5_PARTITION_BEGIN = b'\xEB\xEB' + b'\xFF' * 14
+
+const FlagReadOnly = 0x02;
+
 
 export type Type = "app" | "data";
 function getType(type: Type): number {
@@ -22,18 +27,20 @@ function getType(type: Type): number {
     throw new Error(`unknown Type: ${ type }`);
 }
 
-export type AppType = "factory" | "test";
+export type AppType = "factory" | "test" | "ota_0" | "ota_1";
 function getAppType(type: AppType): number {
     switch (type) {
         case "factory": return 0x00;
+        case "ota_0": return 0x10;
+        case "ota_1": return 0x11;
         case "test": return 0x20;
     }
     throw new Error(`unknown AppType: ${ type }`);
 }
 
 export type DataType = "ota" | "phy" | "nvs" | "coredump" |
-  "nvs_keys" | "efuse" | "undefined" | "esphttpd" |
-  "fat" | "spiffs" | "littlefs";
+  "nvs_keys" | "efuse" | "undefined" | "esphttpd" | "fat" |
+  "spiffs" | "littlefs";
 function getDataType(type: DataType): number {
     switch (type) {
         case "ota": return 0x00;
@@ -51,11 +58,11 @@ function getDataType(type: DataType): number {
     throw new Error(`invalid DataType: ${ type }`);
 }
 
-export type SubType<T extends Type> =
+export type SubTypes<T extends Type> =
     T extends "app" ? AppType:
     T extends "data" ? DataType:
     never;
-function getSubtype<T extends Type>(type: T, subtype: SubType<T>): number {
+function getSubtype<T extends Type>(type: T, subtype: SubTypes<T>): number {
     switch (type) {
         case "app": return getAppType(<AppType>subtype);
         case "data": return getDataType(<DataType>subtype);
@@ -63,28 +70,19 @@ function getSubtype<T extends Type>(type: T, subtype: SubType<T>): number {
     throw new Error(`invalid Subtype: ${ type }`);
 }
 
-const FlagReadOnly = 0x01;
-
-function md5(data: Uint8Array): Uint8Array {
-    const hasher = createHash("md5");
-    hasher.update(data);
-    return hasher.digest();
-}
-
-
 
 export class Partition<T extends Type> {
 
     readonly name: string;
     readonly type: T;
-    readonly subtype: SubType<T>
+    readonly subtype: SubTypes<T>
 
     readonly offset: number;
     readonly size: number;
 
     readonly isReadonly: boolean;
 
-    constructor(name: string, type: T, subtype: SubType<T>, offset: number, size: number, isReadonly: boolean) {
+    constructor(name: string, type: T, subtype: SubTypes<T>, offset: number, size: number, isReadonly: boolean) {
         if (toUtf8Bytes(name).length > 16) {
             throw new Error(`bad name: ${ name}`);
         }
@@ -104,7 +102,13 @@ export class Partition<T extends Type> {
         let flags = 0;
         if (this.isReadonly) { flags |= FlagReadOnly; }
 
-        //STRUCT_FORMAT = b'<2sBB LL 16sL'
+        // - Magic (2 bytes)
+        // - type (1 byte)
+        // - subtype (1 byte)
+        // - offset (4 bytes; little-endian)
+        // - size (4 bytes; little-endian)
+        // - name (16 bytes)
+        // - flags (4 bytes; read-only = 1)
         const result = new Uint8Array(32);
         result.set(Magic, 0);
         result[2] = getType(this.type);
@@ -118,30 +122,127 @@ export class Partition<T extends Type> {
     }
 }
 
-/*
-00000000: aa50 0102 0090 0000 0070 0000 6174 7465  .P.......p..atte
-00000010: 7374 0000 0000 0000 0000 0000 0000 0000  st..............
-00000020: aa50 0000 0000 0100 0000 7000 6661 6374  .P........p.fact
-00000030: 6f72 7900 0000 0000 0000 0000 0000 0000  ory.............
-00000040: aa50 0102 0000 f000 0000 1000 6e76 7300  .P..........nvs.
-00000050: 0000 0000 0000 0000 0000 0000 0000 0000  ................
-00000060: ebeb ffff ffff ffff ffff ffff ffff ffff  ................
-00000070: 5a00 b544 b462 80aa 58da a770 eb62 07a2  Z..D.b..X..p.b..
-00000080: ffff ffff ffff ffff ffff ffff ffff ffff  ................
-00000090: ffff ffff ffff ffff ffff ffff ffff ffff  ................
-*/
-
-const Magic = new Uint8Array([ 0xaa, 0x50 ]);
-
 export class PartitionTable {
     #records: Array<Partition<Type>>;
 
-    constructor() {
+    #flashSize: number;
+    get flashSize(): number { return this.#flashSize; }
+
+    constructor(flashSize = 0) {
         this.#records = [ ];
+        this.#flashSize = flashSize;
     }
 
-    addPartition<T extends Type>(name: string, type: T, subtype: SubType<T>, offset: number, size: number, isReadonly: boolean): void {
+    get partitions(): Array<Partition<Type>> {
+        const records = this.#records.slice();
+        records.sort((a, b) => (a.offset - b.offset));
+        return records;
+    }
+
+    addPartition<T extends Type>(name: string, type: T, subtype: SubTypes<T>, offset: number, size: number, isReadonly: boolean): void {
+        // Check the flash is large enough
+        assert(this.#flashSize === 0 || offset + size <= this.#flashSize, `partition outside flash range`, {
+            name, offset, size, flashSize: this.#flashSize
+        });
+
+        if (type === "data") {
+            // Check ota data is exactly 0x2000 bytes
+            assert(subtype != "ota" || size === 0x2000, `ota_data must be 0x2000 bytes`, {
+                name, size
+            });
+
+            // Check the data partition is 4k bounrary aligned
+            assert((offset & 0xfff) === 0, `data partition must be aligned on 0x10000 boundary`, {
+                name, offset
+            });
+        }
+
+        if (type === "app") {
+            // Check the app partition is 64k boundary aligned
+            assert((offset & 0xffff) === 0, `app partition must be aligned on 0x10000 boundary`, {
+                name, offset
+            });
+
+            // Check the size is 4k boundary aligned
+            assert((size & 0xfff) === 0, `app partition size must be aligned on 0x1000 boundary`, {
+                name, size
+            });
+        }
+
+        // Check the name is unique
+        const partition = this.getPartition(name);
+        assert(!partition, `duplicate partition name: ${ name }`, {
+            name, partition
+        });
+
+        // Check the partition doesn't overlap any other partition
+        const partitions = this.partitions;
+        for (const partition of partitions) {
+            assert(offset >= partition.offset + partition.size || offset + size < partition.offset,
+                `overlapping partition: ${ name } overlaps ${ partition.name}`, {
+                name, partition
+            });
+        }
+
         this.#records.push(new Partition(name, type, subtype, offset, size, isReadonly));
+    }
+
+    getPartitionAt(offset: number): null | Partition<Type> {
+        for (const partition of this.partitions) {
+            const o = partition.offset;
+            if (offset >= o && offset < o + partition.size) {
+                return partition;
+            }
+        }
+        return null;
+    }
+
+    getPartition(name: string): null | Partition<Type> {
+        for (const record of this.#records) {
+            if (record.name === name) { return record; }
+        }
+        return null;
+    }
+
+    summary(): string {
+        function toAddr(_v: number): string {
+            let v = String(_v.toString(16));
+            while (v.length < 7) { v = "0" + v; }
+            return v;
+        }
+
+        function size(v: number): string {
+            if (v < 1024) { return `${ v }b`; }
+            if (v < 1024 * 1024) { return `${ (v / 1024).toFixed(1) }kb`;}
+            return `${ (v / 1024 / 1024).toFixed(1) }Mb`;
+        }
+
+        function padl(text: string, width: number): string {
+            while (text.length < width) { text = " " + text; }
+            return text;
+        }
+
+        function padr(text: string, width: number): string {
+            while (text.length < width) { text = text + " "; }
+            return text;
+        }
+
+        const lines: Array<string> = [ ];
+
+        let offset = 0;
+        for (const p of this.partitions) {
+            if (p.offset > offset) {
+                lines.push(`  ${ toAddr(offset) }:${ toAddr(p.offset) } ${ padl(size(p.offset - offset), 10) }  [ UNUSED ]`);
+            }
+            lines.push(`  ${ toAddr(p.offset) }:${ toAddr(p.size) } ${ padl(size(p.size), 10) }  ${ padr(p.name, 16) }  ${ p.type }/${ p.subtype } ${ p.isReadonly ? "RO": "" }`);
+            offset = p.offset + p.size;
+        }
+
+        if (this.#flashSize && offset < this.#flashSize) {
+            lines.push(`  ${ toAddr(offset) }:${ toAddr(this.#flashSize) } ${ padl(size(this.#flashSize - offset), 10) }  [ UNUSED ]`);
+        }
+
+        return lines.join("\n");
     }
 
     get binary(): Uint8Array {
@@ -168,16 +269,35 @@ export class PartitionTable {
 }
 
 
+function md5(data: Uint8Array): Uint8Array {
+    const hasher = createHash("md5");
+    hasher.update(data);
+    return hasher.digest();
+}
+
+
+
+
 import { BinDiff } from "./debug.js";
 
 import fs from "fs";
 
 const expected = fs.readFileSync("obsolete/test-part/partition.bin");
 
-const table = new PartitionTable();
-table.addPartition("attest", "data", "nvs", 0x009000, 0x007000, false);
-table.addPartition("factory", "app", "factory", 0x010000, 0x700000, false);
-table.addPartition("nvs", "data", "nvs", 0xf00000, 0x100000, false);
+const table = new PartitionTable(16 * 1024 * 1024);
+//table.addPartition("attest", "data", "nvs", 0x009000, 0x007000, false);
+//table.addPartition("factory", "app", "factory", 0x010000, 0x700000, false);
+//table.addPartition("nvs", "data", "nvs", 0xf00000, 0x100000, false);
+table.addPartition("attest", "data", "nvs", 0x009000, 0x005000, true);
+//table.addPartition("futurekeys", "data", "nvs", 0x00c000, 0x001000, false);
+table.addPartition("otadata", "data", "ota", 0x00e000, 0x002000, false);
+//table.addPartition("theme", "data", "nvs", 0x00D000, 0x003000, false);
+table.addPartition("factory", "app", "factory", 0x010000, 0x0e0000, false);
+table.addPartition("nvs", "data", "nvs", 0x100000, 0x100000, false);
+table.addPartition("ota_0", "app", "ota_0", 0x200000, 0x700000, false);
+table.addPartition("ota_1", "app", "ota_1", 0x900000, 0x700000, false);
 
 const diff = new BinDiff(table.binary, expected);
-diff.dump();//undefined, undefined, true);
+diff.dump(0, undefined, true);
+
+console.log(table.summary());
