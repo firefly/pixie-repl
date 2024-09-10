@@ -55,21 +55,22 @@ typedef enum {
   /* Commands supported by the ESP32S2 and later bootloaders */
   ESP_GET_SECURITY_INFO = 0x14,
 
-  /* Stub-only commands */
-  ESP_ERASE_FLASH = 0xD0,
-  ESP_ERASE_REGION = 0xD1,
-  ESP_READ_FLASH = 0xD2,
-  ESP_RUN_USER_CODE = 0xD3,
-
   /* Firefly-only commands */
   ESP_FFX_VERSION      = 0x80,
 
   ESP_FFX_BURN_EFUSE   = 0x82,
   ESP_FFX_BURN_KEY     = 0x83,
 
+  ESP_FFX_VERIFY       = 0x84,
+
   ESP_FFX_STIR_ENTROPY = 0x86,
   ESP_FFX_GENKEY       = 0x87,
-  ESP_FFX_COMMIT       = 0x88,
+
+  /* Stub-only commands */
+  ESP_ERASE_FLASH = 0xD0,
+  ESP_ERASE_REGION = 0xD1,
+  ESP_READ_FLASH = 0xD2,
+  ESP_RUN_USER_CODE = 0xD3,
 
   /* Flash encryption debug mode supported command */
   ESP_FLASH_ENCRYPT_DATA = 0xD4,

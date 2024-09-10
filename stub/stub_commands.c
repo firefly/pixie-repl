@@ -60,10 +60,6 @@ static int _mbedtl_fill_random(void* ptr, unsigned char* data, size_t length) {
     return 0;
 }
 
-esp_command_error handle_stir(uint8_t* data, size_t length) {
-    stir(data, length);
-    return ESP_OK;
-}
 
 /////
 // RSA Operations
@@ -254,20 +250,71 @@ static int genkey() {
     ets_aes_disable();
 
 
-    uint8_t pubkeyN[384];
-    mbedtls_mpi_write_binary(&keypair.N, pubkeyN, 384);
+    {
+        uint8_t pubkeyN[384];
+        mbedtls_mpi_write_binary(&keypair.N, pubkeyN, 384);
 
-    SLIP_send_frame_data_buf(pubkeyN, sizeof(pubkeyN));
+        size_t length = sizeof(pubkeyN);
+        SLIP_send_frame_data('P');
+        SLIP_send_frame_data((length >> 8) & 0xff);
+        SLIP_send_frame_data(length & 0xff);
+        SLIP_send_frame_data_buf(pubkeyN, length);
+    }
+
+    {
+        size_t length = sizeof(keypair.cipherdata);
+        SLIP_send_frame_data('C');
+        SLIP_send_frame_data((length >> 8) & 0xff);
+        SLIP_send_frame_data(length & 0xff);
+        SLIP_send_frame_data_buf((uint8_t*)&keypair.cipherdata, length);
+    }
 
     //dumpData("pubkey.N", pubkeyN, sizeof(pubkeyN));
 
-    dumpData("CIPHER", (uint8_t*)&keypair.cipherdata, sizeof(keypair.cipherdata));
+    //dumpData("CIPHER", (uint8_t*)&keypair.cipherdata,
+    //  sizeof(keypair.cipherdata));
 
     mbedtls_rsa_free(&rsa);
     return ESP_OK;
 }
 
-esp_command_error handle_genkey(uint32_t *status) {
+
+esp_command_error handle_ffx_verify(uint32_t offset, uint32_t length) {
+
+    ets_sha_enable();
+
+    SHA_CTX ctx;
+    ets_sha_init(&ctx, SHA2_256);
+
+    uint8_t data[FLASH_SECTOR_SIZE];
+    for (uint32_t i = 0; i < length; i += FLASH_SECTOR_SIZE) {
+        uint8_t res = SPIRead(offset + i, (uint32_t *)data, FLASH_SECTOR_SIZE);
+        if (res != 0) {
+            SLIP_send_debug("Hnnn");
+            break;
+        }
+
+        size_t l = FLASH_SECTOR_SIZE;
+        if (length - i < l) { l = length - i; }
+
+        ets_sha_update(&ctx, data, l, false);
+    }
+
+    uint8_t digest[32] = { 0 };
+    ets_sha_finish(&ctx, digest);
+
+    ets_sha_disable();
+
+    SLIP_send_frame_data_buf(digest, sizeof(digest));
+    return ESP_OK;
+}
+
+esp_command_error handle_ffx_stir(uint8_t* data, size_t length) {
+    stir(data, length);
+    return ESP_OK;
+}
+
+esp_command_error handle_ffx_genkey(uint32_t *status) {
     int ret = genkey();
     if (ret) {
         SLIP_send_debug("GENKEY FAIL=%d seg=%d", (*status) >> 4, (*status) & 0x0f);
@@ -275,6 +322,7 @@ esp_command_error handle_genkey(uint32_t *status) {
     *status = ret;
     return ret ? FFX_FAILED_KEYGEN : ESP_OK;
 }
+
 
 #if defined(ESP32S3)
 esp_rom_spiflash_result_t SPIRead4B(int spi_num, SpiFlashRdMode mode, uint32_t flash_addr, uint8_t* buf, int len)

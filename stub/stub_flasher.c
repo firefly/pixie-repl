@@ -128,8 +128,18 @@ void cmd_loop() {
     case ESP_FFX_VERSION:
         resp.value = STUB_VERSION;
         break;
+    case ESP_FFX_VERIFY:
+        resp.len_ret = 32 + 2;
+        break;
     case ESP_FFX_GENKEY:
-        resp.len_ret = 384 + 2; /* Will sent 16 bytes of data with MD5 value */
+        // 2 bytes stsatus (at the end)
+        resp.len_ret = 2;
+
+        // tag ('C') + length (2 bytes) + ciphertext
+        resp.len_ret += 3 + sizeof(ets_ds_data_t);
+
+        // tag ('P') + length (2 bytes) + pubkeyN
+        resp.len_ret += 3 + (ETS_DS_MAX_BITS / 8);
         break;
     default:
         break;
@@ -290,10 +300,13 @@ void cmd_loop() {
         error = ESP_OK;
         break;
     case ESP_FFX_STIR_ENTROPY:
-        error = verify_data_len(command, 32) || handle_stir(command->data_buf, 32);
+        error = verify_data_len(command, 32) || handle_ffx_stir(command->data_buf, 32);
+        break;
+    case ESP_FFX_VERIFY:
+        error = verify_data_len(command, 8) || handle_ffx_verify(data_words[0], data_words[1]);
         break;
     case ESP_FFX_GENKEY:
-        error = verify_data_len(command, 0) || handle_genkey(&status);
+        error = verify_data_len(command, 0) || handle_ffx_genkey(&status);
         break;
     case ESP_RUN_USER_CODE:
         /* Returning from here will run user code, ie standard boot process

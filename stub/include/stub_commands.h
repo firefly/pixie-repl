@@ -51,5 +51,6 @@ esp_command_error handle_get_security_info(void);
 #endif // ESP32S2_OR_LATER
 
 
-esp_command_error handle_genkey();
-esp_command_error handle_stir(uint8_t *data, size_t length);
+esp_command_error handle_ffx_verify(uint32_t addr, uint32_t len);
+esp_command_error handle_ffx_genkey();
+esp_command_error handle_ffx_stir(uint8_t *data, size_t length);
