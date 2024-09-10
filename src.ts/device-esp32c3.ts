@@ -9,8 +9,6 @@ import type { DeviceInfo } from "./device.js";
 export const Magic = [ 0x6921506f, 0x1b31506f, 0x4881606f, 0x4361606f ];
 
 export class DeviceEsp32c3 extends Device {
-    readonly chipName = "ESP32-C3"
-
     readonly SPI_USR_OFFS = 0x18;
     //readonly SPI_USR1_OFFS = 0x1c;
     readonly SPI_USR2_OFFS = 0x20;
@@ -31,10 +29,10 @@ export class DeviceEsp32c3 extends Device {
         const SPI_MISO_DLEN_OFFS = 0x28;
 
         if (mosiLength > 0) {
-            await this.writeSpiRegister(SPI_MOSI_DLEN_OFFS, mosiLength - 1);
+            await this._writeSpiRegister(SPI_MOSI_DLEN_OFFS, mosiLength - 1);
         }
         if (misoLength > 0) {
-            await this.writeSpiRegister(SPI_MISO_DLEN_OFFS, misoLength - 1);
+            await this._writeSpiRegister(SPI_MISO_DLEN_OFFS, misoLength - 1);
         }
     }
 
@@ -57,7 +55,7 @@ export class DeviceEsp32c3 extends Device {
         const readWord = async (numWord: number) => {
             const block1Addr = EFUSE_BASE + 0x044;
             const addr = block1Addr + 4 * numWord;
-            return  await this.readRegister(addr);
+            return  await this._readRegister(addr);
         }
 
         const word3 = await readWord(3);
@@ -69,7 +67,7 @@ export class DeviceEsp32c3 extends Device {
         const major = (word5 >> 24) & 0x03;
         const minor = (((word5 >> 23) & 0x01) << 3) + ((word3 >> 18) & 0x07);
 
-        const flashId = await this.spiFlashCommand(CMDSPI_RDID, new Uint8Array(0), 24);
+        const flashId = await this._spiFlashCommand(CMDSPI_RDID, new Uint8Array(0), 24);
 
         let pkg = `unknown:pkg=${ pkgver }`;
         if (pkgver === 0) { pkg = "ESP32-C3"; }
@@ -78,7 +76,7 @@ export class DeviceEsp32c3 extends Device {
 
 
         // Make sure we are provisioned
-        const version = await this.readRegister(EFUSE_BASE + 124);
+        const version = await this._readRegister(EFUSE_BASE + 124);
         if (version === 0) {
             return {
                 chip,
@@ -88,8 +86,8 @@ export class DeviceEsp32c3 extends Device {
 
         assert(version === 1, `unsupported provision version`, { version });
 
-        const modelNumber = await this.readRegister(EFUSE_BASE + 128);
-        const serialNumber = await this.readRegister(EFUSE_BASE + 132);
+        const modelNumber = await this._readRegister(EFUSE_BASE + 128);
+        const serialNumber = await this._readRegister(EFUSE_BASE + 132);
 
         let modelName = `[unknown model=0x${ modelNumber }]`;
         if ((modelNumber >> 8) === 1) {
@@ -102,8 +100,8 @@ export class DeviceEsp32c3 extends Device {
     async getMacAddress(): Promise<string> {
         const MAC_EFUSE_REG = 0x60008800 + 0x044;
 
-        const mac0 = BigInt(((await this.readRegister(MAC_EFUSE_REG)) & 0xffffffff) >>> 0);
-        const mac1 = (await this.readRegister(MAC_EFUSE_REG + 4)) & 0xffff;
+        const mac0 = BigInt(((await this._readRegister(MAC_EFUSE_REG)) & 0xffffffff) >>> 0);
+        const mac1 = (await this._readRegister(MAC_EFUSE_REG + 4)) & 0xffff;
 
         return [
             hexlify(mac1 >> 8, 1),

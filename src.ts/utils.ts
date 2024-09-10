@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 
 ////////////////////////////////////////
 // Errors
@@ -124,4 +125,20 @@ export function toUtf8Bytes(text: string): Uint8Array {
 const _TextDecoder = new TextDecoder();
 export function toUtf8String(data: Uint8Array): string {
     return _TextDecoder.decode(data);
+}
+
+
+////////////////////////////////////////
+// Crypto
+
+export function md5(data: Uint8Array): Uint8Array {
+    const hasher = createHash("md5");
+    hasher.update(data);
+    return hasher.digest();
+}
+
+export function sha256(data: Uint8Array): Uint8Array {
+    const hasher = createHash("sha256");
+    hasher.update(data);
+    return hasher.digest();
 }

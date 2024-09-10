@@ -7,7 +7,9 @@
 
 import { hexlify } from "./utils.js";
 
+/////////////
 // Commands supported by ROM and Stub
+
 export const CMD_FLASH_BEGIN      = 0x02;
 export const CMD_FLASH_DATA       = 0x03;
 export const CMD_FLASH_END        = 0x04;
@@ -26,30 +28,34 @@ export const CMD_FLASH_DEFL_END   = 0x12;
 export const CMD_SPI_FLASH_MD5    = 0x13
 
 
+////////////
 // Commands supports only by Stub
+
 export const CMD_ERASE_FLASH      = 0xd0;
 export const CMD_ERASE_REGION     = 0xd1;
 export const CMD_READ_FLASH       = 0xd2;
 export const CMD_RUN_USER_CODE    = 0xd3;
 
 
+/////////////
 // Firefly extended commands
-export const CMD_FFX_VERSION      = 0x80;
 
-//export const CMD_FFX_SET_MODEL    = 0x82;
-//export const CMD_FFX_SET_SERIAL   = 0x83;
+export const CMD_FFX_VERSION      = 0x80;
 
 export const CMD_FFX_BURN_EFUSE   = 0x82;
 export const CMD_FFX_BURN_KEY     = 0x83;
 
-export const CMD_FFX_STIR         = 0x86;
+export const CMD_FFX_VERIFY       = 0x84;
+
+export const CMD_FFX_STIR_ENTROPY = 0x86;
 export const CMD_FFX_GENKEY       = 0x87;
-export const CMD_FFX_COMMIT       = 0x88;
 
 
-
+/////////////
 // SPI Commands
+
 export const CMDSPI_RDID          = 0x9f;
+
 
 
 export function computeChecksum(data: Uint8Array): number {
