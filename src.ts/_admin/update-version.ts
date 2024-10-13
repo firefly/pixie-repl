@@ -5,7 +5,7 @@ import { dirname, resolve as _resolve } from "path";
 import { fileURLToPath } from 'url';
 import { gunzipSync } from "zlib";
 
-import { assert } from "../utils.js";
+import { assert } from "../utils/errors.js";
 
 import semver from "semver";
 

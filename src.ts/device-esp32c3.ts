@@ -1,27 +1,57 @@
 //import { decodeConfig } from "./config.js";
+import { getModelName } from "./attest.js";
 import { Device } from "./device.js";
-import { assert, hexlify } from "./utils.js";
-import { CMDSPI_RDID } from "./protocol.js";
+import { concat, fromLeBytes, hexlify, toLeBytes } from "./utils/data.js";
+import { assert } from "./utils/errors.js";
+import { CMDSPI_RDID, CMD_WRITE_REG } from "./protocol.js";
 import { Stub } from "./stubs/esp32-c3.js";
 
 import type { DeviceInfo } from "./device.js";
 
 export const Magic = [ 0x6921506f, 0x1b31506f, 0x4881606f, 0x4361606f ];
 
-export class DeviceEsp32c3 extends Device {
-    readonly SPI_USR_OFFS = 0x18;
-    //readonly SPI_USR1_OFFS = 0x1c;
-    readonly SPI_USR2_OFFS = 0x20;
-    readonly SPI_W0_OFFS = 0x58;
+// SPI_USR register flags
+const SPI_USR_COMMAND = (1 << 31) >>> 0;
+const SPI_USR_MISO = 1 << 28;
+const SPI_USR_MOSI = 1 << 27;
 
-    readonly UART_DATE_REG_ADDR = 0x6000007c;
+const SPI_CMD_USR = 1 << 18;
 
-    readonly stub = Stub;
+const SPI_USR2_COMMAND_LEN_SHIFT = 28;
 
-    // @TODO: Rename to spiRegisterAddress
-    registerAddress(offset: number): number {
-        return SPI_REG_BASE + offset;
+const SPI_USR_OFFS = 0x18;
+//const SPI_USR1_OFFS" = 0x1c;
+const SPI_USR2_OFFS = 0x20;
+const SPI_W0_OFFS = 0x58;
+
+const UART_DATE_REG_ADDR = 0x6000007c;
+
+function registerAddress(offset: number): number {
+    return SPI_REG_BASE + offset;
+}
+
+function countOnes(value: number): number {
+    let count = 0;
+    while (value) {
+        value &= value - 1;
+        count++;
     }
+    return count;
+}
+
+export class DeviceEsp32c3 extends Device {
+
+    async connect(): Promise<number> {
+        const magic = await super.connect();
+
+        assert(Magic.indexOf(magic) >= 0, `invalid magic number: 0x${ magic.toString(16) }`, {
+            magic
+        });
+
+        return magic;
+    }
+
+    async _getStub() { return Stub; }
 
     // @TODO: Rename? setSpiLengthRegisters
     async _setDataLengths(mosiLength: number, misoLength: number): Promise<void> {
@@ -49,7 +79,91 @@ export class DeviceEsp32c3 extends Device {
     }
     */
 
+    async _spiFlashCommand(command: number, data: Uint8Array, responseBits: number): Promise<number> {
+        assert(responseBits <= 32, "max SPI response length is 32 bits", {
+            length: responseBits
+        });
+
+        assert(data.length <= 64, "max SPI request length is 64 bytes", {
+            length: data.length
+        });
+
+        const oldSpiUsr = await this._readSpiRegister(SPI_USR_OFFS);
+        const oldSpiUsr2 = await this._readSpiRegister(SPI_USR2_OFFS);
+
+        await this._setDataLengths(data.length * 8, responseBits);
+
+        {
+            let flags = SPI_USR_COMMAND;
+            if (responseBits > 0) { flags |= SPI_USR_MISO; }
+            if (data.length) { flags |= SPI_USR_MOSI; }
+            await this._writeSpiRegister(SPI_USR_OFFS, flags);
+        }
+
+        {
+            const val = (7 << SPI_USR2_COMMAND_LEN_SHIFT) | command;
+            await this._writeSpiRegister(SPI_USR2_OFFS, val);
+        }
+
+        {
+            let reg = SPI_W0_OFFS;
+
+            if (data.length === 0) {
+                await this._writeSpiRegister(reg, 0);
+            } else {
+                // TODO: I think this logic is wrong; copied mostly
+                // from esptool-js, but the padding looks backwards
+                if (data.length % 4 != 0) {
+                    const padding = new Uint8Array(data.length % 4);
+                    data = concat([ data, padding ]);
+                }
+                // TODO: This also looks wrong; like it stops short?
+                for (let i = 0; i < data.length - 4; i += 4) {
+                    await this._writeSpiRegister(reg, fromLeBytes(data.slice(i, i + 4)));
+                    reg += 4;
+                }
+            }
+        }
+
+        await this._writeSpiRegister(0x00, SPI_CMD_USR);
+
+        for (let i = 0; i < 11; i++) {
+            const val = (await this._readSpiRegister(0x00)) & SPI_CMD_USR;
+            if (val == 0) { break; }
+            assert(i < 10, "SPI command did not complete in time");
+        }
+
+        const status = await this._readSpiRegister(SPI_W0_OFFS);
+
+        await this._writeSpiRegister(SPI_USR_OFFS, oldSpiUsr);
+        await this._writeSpiRegister(SPI_USR2_OFFS, oldSpiUsr2);
+
+        return status;
+    }
+
+    async _readSpiRegister(offset: number): Promise<number> {
+        return await this._readRegister(registerAddress(offset));
+    }
+
+    async _writeSpiRegister(offset: number, value: number, mask?: number, delayUs?: number, delayAfterUs?: number): Promise<void> {
+        const address = registerAddress(offset);
+
+        if (mask == null) { mask = 0xffffffff; }
+        if (delayUs == null) { delayUs = 0; }
+
+        const fields = [ address, value, mask, delayUs ];
+        if (delayAfterUs) {
+            fields.push(UART_DATE_REG_ADDR, 0, 0, delayAfterUs);
+        }
+
+        const packet = concat(fields.map((v) => toLeBytes(v, 4)));
+
+        await this._command(CMD_WRITE_REG, packet);
+    }
+
     async getDeviceInfo(): Promise<DeviceInfo> {
+        await this._enableStub();
+
         const EFUSE_BASE = 0x60008800;
 
         const readWord = async (numWord: number) => {
@@ -62,7 +176,6 @@ export class DeviceEsp32c3 extends Device {
         const word5 = await readWord(5);
 
         const pkgver = Number((word3 >> 21) & 0x07);
-        //const rev = Number((value >> 18) & 0x07);
 
         const major = (word5 >> 24) & 0x03;
         const minor = (((word5 >> 23) & 0x01) << 3) + ((word3 >> 18) & 0x07);
@@ -72,29 +185,45 @@ export class DeviceEsp32c3 extends Device {
         let pkg = `unknown:pkg=${ pkgver }`;
         if (pkgver === 0) { pkg = "ESP32-C3"; }
 
-        const chip = `${ pkg } (rev:${ major }.${ minor }; ${ FlashSizeMap[(flashId >> 16) & 0xff] || "unknown flash size" })`;
+        const size = FlashSizeMap[(flashId >> 16) & 0xff] || { };
+        const flashSize = size.value || 0;
+
+        const chip = `${ pkg } (v${ major }.${ minor }; ${ size.human || "unknown flash size" })`;
 
 
         // Make sure we are provisioned
-        const version = await this._readRegister(EFUSE_BASE + 124);
+        let version = await this._readRegister(EFUSE_BASE + 124);
         if (version === 0) {
             return {
-                chip,
-                modelName: "[unprovisioned]", modelNumber: 0, serialNumber: 0
+                chip, flashSize, version,
+                modelName: "[unprovisioned]", model: 0, serial: 0
             };
+        } else if (version > 1) {
+            // Versions greater than 1 include a zero count; currently
+            // not used, but planned for the future
+            assert(!(version & 1), `invalid version encoding; lsb-set`, {
+                reason: "lsb-set", version
+            })
+
+            const zeros = (version >> 1) & 0x1f;
+            version >>= 6;
+
+            assert(zeros === (32 - 6 - countOnes(version)),
+              `invalid version encoding; bad-zero-count`, {
+                reason: "bad-zero-count", version
+            });
         }
 
         assert(version === 1, `unsupported provision version`, { version });
 
-        const modelNumber = await this._readRegister(EFUSE_BASE + 128);
-        const serialNumber = await this._readRegister(EFUSE_BASE + 132);
+        const model = await this._readRegister(EFUSE_BASE + 128);
+        const serial = await this._readRegister(EFUSE_BASE + 132);
 
-        let modelName = `[unknown model=0x${ modelNumber }]`;
-        if ((modelNumber >> 8) === 1) {
-            modelName = `Firefly Pixie (rev: ${ modelNumber & 0xff })`;
-        }
+        const modelName = getModelName(model);
 
-        return { chip, modelName, modelNumber, serialNumber };
+        return {
+            chip, flashSize, modelName, model, serial, version
+        };
     }
 
     async getMacAddress(): Promise<string> {
@@ -112,21 +241,17 @@ export class DeviceEsp32c3 extends Device {
             hexlify(mac0 & 0xffn, 1),
         ].join(":");
     }
-
-    checkMagic(magic: number) {
-        return Magic.indexOf(magic) >= 0;
-    }
 }
 
 
 const SPI_REG_BASE = 0x60002000;
 
-const FlashSizeMap: Record<number, string> = {
-    0x12: "256KB",
-    0x13: "512KB",
-    0x14: "1MB",
-    0x15: "2MB",
-    0x16: "4MB",
-    0x17: "8MB",
-    0x18: "16MB",
+const FlashSizeMap: Record<number, { human: string, value: number }> = {
+    0x12: { human: "256KB", value: 256 * (1 << 10) },
+    0x13: { human: "512KB", value: 512 * (1 << 10) },
+    0x14: { human: "1MB", value: 1 * (1 << 20) },
+    0x15: { human: "2MB", value: 2 * (1 << 20) },
+    0x16: { human: "4MB", value: 4 * (1 << 20) },
+    0x17: { human: "8MB", value: 8 * (1 << 20) },
+    0x18: { human: "16MB", value: 16 * (1 << 20) },
 };

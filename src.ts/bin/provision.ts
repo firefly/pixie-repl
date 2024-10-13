@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { DeviceEsp32c3 as Device } from "../device-esp32c3.js";
-import { SerialPort } from "../node-specific.js";
+import { SerialPort } from "../serial-node.js";
 
 const serial = SerialPort.discover(true);
 
@@ -15,5 +15,5 @@ const serial = SerialPort.discover(true);
     console.log("Device Info:");
     console.log(`  Model: ${ deviceInfo.modelName }`);
     console.log(`  MAC Address: ${ macAddress }`);
-    console.log(`  Serial Number: ${ deviceInfo.serialNumber }`);
+    console.log(`  Serial Number: ${ deviceInfo.serial }`);
 })();

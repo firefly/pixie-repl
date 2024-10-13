@@ -22,9 +22,10 @@ import {
 } from "./protocol.js";
 import { Md5 } from "./utils/md5.js";
 import { PartitionTable } from "./partition.js";
-import {
-    assert, concat, fromLeBytes, stall, toLeBytes
-} from "./utils.js";
+
+import { assert } from "./utils/errors.js";
+import { concat, fromLeBytes, toLeBytes } from "./utils/data.js";
+import { stall } from "./utils/timer.js";
 
 import type { SerialPort } from "./serial.js";
 import type  { Stub } from "./stubs/stub.js";

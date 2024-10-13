@@ -1,4 +1,6 @@
-import { assert, hexlify, repeat } from "./utils.js";
+import { hexlify } from "./utils/data.js";
+import { assert } from "./utils/errors.js";
+import { repeat } from "./utils/strings.js";
 
 export type Printer = (line: string) => void;
 

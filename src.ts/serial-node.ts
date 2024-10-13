@@ -4,7 +4,9 @@ import { join } from "path";
 import ioctl from "ioctl";
 
 import type { SerialPort as _SerialPort } from "./serial.js"
-import { concat, stall } from "./utils.js";
+
+import { concat } from "./utils/data.js";
+import { stall } from "./utils/timer.js";
 
 //const TIOCMGET = 0x4004746a, TIOCMSET = 0x8004746d;
 const TIOCMSET = 0x8004746d;

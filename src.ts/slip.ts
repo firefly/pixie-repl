@@ -1,4 +1,4 @@
-import { concat, hexlify } from "./utils.js";
+import { concat, hexlify } from "./utils/data.js";
 
 /**
  *  Serial Line Internet Protocol (SLIP) coder library.
@@ -51,28 +51,6 @@ export type SlipDecodeResult = {
     remaining: Uint8Array;
 };
 
-/*
-export function slipCheckDebug(data: Uint8Array): null | SlipDecodeResult {
-    const markers = [ ];
-    for (let i = 0; i < data.length; i++) {
-        if (data[i] === 0xc0) { markers.push(i); }
-        if (markers.length >= 2) { break; }
-    }
-    if (markers.length === 2 && markers[1] - markers[0] === 1) {
-        if (data.length < markers[1] + 1) { return null; }
-        const length = data[markers[1] + 1];
-        if (data.length < markers[1] + length) { return null; }
-        return {
-           start: markers[1] + 1,
-           data: data.slice(markers[1] + 2, markers[1] + 2 + length),
-           consumed: markers[1] + 2 + length
-        }
-    }
-
-    return null;
-}
-*/
-
 function findDebug(data: Uint8Array, start: number): number {
     for (let i = start; i < data.length - 2; i++) {
         if (hexlify(data.slice(i, i + 3)) === "c0c0c0") {
@@ -83,22 +61,6 @@ function findDebug(data: Uint8Array, start: number): number {
 }
 
 const _TextDecoder = new TextDecoder();
-
-/*
-function _debugDecode(data: Uint8Array, offset: number): null | SlipDecodeResult {
-    if (data.length < offset + 4) { return null; }
-
-    const length = data[offset + 3];
-
-    // Not all debug bytes are present yet
-    if (data.length < offset + 4 + length) { return null; }
-
-    return {
-        debug: _TextDecoder.decode(data.slice(offset + 4, offset + 4 + length)),
-        remaining: concat([ data.slice(0, offset), data.slice(offset + 4 + length) ])
-    }
-}
-*/
 
 function _slipDecode(data: Uint8Array): null | SlipDecodeResult {
     const markers = [ ];

@@ -1,5 +1,5 @@
 
-import { hexlify } from "./utils.js";
+import { hexlify } from "./utils/data.js";
 
 function pad(v: string): string {
     while (v.length < 8) { v = "0" + v; }

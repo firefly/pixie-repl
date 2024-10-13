@@ -5,7 +5,7 @@
  *  See: https://docs.espressif.com/projects/esptool/en/latest/esp32/advanced-topics/serial-protocol.html
  */
 
-import { hexlify } from "./utils.js";
+import { hexlify } from "./utils/data.js";
 
 /////////////
 // Commands supported by ROM and Stub
@@ -23,9 +23,9 @@ export const CMD_SPI_SET_PARAMS   = 0x0b;
 export const CMD_SPI_ATTACH       = 0x0d;
 export const CMD_CHANGE_BAUDRATE  = 0x0f;
 export const CMD_FLASH_DEFL_BEGIN = 0x10;
-export const CMD_FLASH_DEFL_DATA  = 0x11
+export const CMD_FLASH_DEFL_DATA  = 0x11;
 export const CMD_FLASH_DEFL_END   = 0x12;
-export const CMD_SPI_FLASH_MD5    = 0x13
+export const CMD_SPI_FLASH_MD5    = 0x13;
 
 
 ////////////
@@ -46,9 +46,11 @@ export const CMD_FFX_BURN_EFUSE   = 0x82;
 export const CMD_FFX_BURN_KEY     = 0x83;
 
 export const CMD_FFX_VERIFY       = 0x84;
+export const CMD_FFX_READ_RLE     = 0x85;
 
 export const CMD_FFX_STIR_ENTROPY = 0x86;
 export const CMD_FFX_GENKEY       = 0x87;
+
 
 
 /////////////

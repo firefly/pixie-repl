@@ -1,7 +1,6 @@
-import {
-    assert,
-    fromLeBytes, toLeBytes, toUtf8Bytes, toUtf8String
-} from "./utils.js";
+import { assert } from "./utils/errors.js";
+import { fromLeBytes, toLeBytes } from "./utils/data.js";
+import { toUtf8Bytes, toUtf8String } from "./utils/strings.js";
 import { Md5 } from "./utils/md5.js";
 
 

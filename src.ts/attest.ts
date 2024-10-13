@@ -1,7 +1,9 @@
 import {
-  getBytes, hexlify, sha256, toBeArray, verifyMessage, zeroPadValue
+    Signature,
+    getBytes, hexlify, sha256, toBeArray, verifyMessage, zeroPadValue
 } from "ethers";
 
+import type { BaseWallet } from "ethers";
 
 export const IssuerAddress = "0x70CD34d96E58876a25445dd75f54630D99258182";
 
@@ -12,6 +14,19 @@ export interface AttestedDeviceInfo {
     modelNumber: number;
     modelName: string;
     serialNumber: number;
+}
+
+export function getModelName(modelNumber: number) {
+    if ((modelNumber >> 8) === 1) {
+        return `Firefly Pixie (rev: ${ modelNumber & 0xff })`;
+    }
+    return `[unknown model=0x${ modelNumber.toString(16) }]`;
+}
+
+export function compute(signer: BaseWallet, modelNumber: number, serialNumber: number, pubkey: string) {
+    const message = getMessage(modelNumber, serialNumber, pubkey);
+    const attest = signer.signMessageSync(message);
+    return Signature.from(attest).compactSerialized;;
 }
 
 export function verify(attest: string): AttestedDeviceInfo {
@@ -36,10 +51,7 @@ export function verify(attest: string): AttestedDeviceInfo {
     const signature = readBytes(384);
 
     // Determine the model name
-    let modelName = `[unknown model 0x${ modelNumber.toString(16) }]`;
-    if ((modelNumber >> 8) === 1) {
-        modelName = `Firefly Pixie (rev: ${ modelNumber & 0xff })`;
-    }
+    const modelName = getModelName(modelNumber);
 
     // Check the attestation proof is valid
     const message = getMessage(modelNumber, serialNumber, hexlify(pubkeyN));

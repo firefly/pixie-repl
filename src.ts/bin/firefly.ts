@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { DeviceEsp32c3 as Device } from "../device-esp32c3.js";
-import { SerialPort } from "../node-specific.js";
+import { SerialPort } from "../serial-node.js";
 
-const serial = new SerialPort("/dev/cu.usbmodem101");
+const serial = SerialPort.discover(); //("/dev/cu.usbmodem101");
 
 (async function() {
     const device = new Device(serial);

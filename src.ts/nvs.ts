@@ -2,9 +2,9 @@
 //
 // See: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/nvs_flash.html
 
-import { hexlify } from "ethers";
-
-import { concat, toUtf8Bytes } from "./utils.js";
+import { assert } from "./utils/errors.js";
+import { concat, fromLeBytes, hexlify } from "./utils/data.js";
+import { extractString, toUtf8Bytes } from "./utils/strings.js";
 
 
 const PageSize = 4096;
@@ -20,6 +20,10 @@ function getPageState(state: PageState): number {
     }
     throw new Error(`invalid PageState: ${ state }`);
 }
+const PageStateMap: Record<number, PageState> = {
+    0xffffffff: "empty", 0xfffffffe: "active", 0xfffffffc: "full",
+    0xfffffff8: "erasing", 0: "corrupt"
+};
 
 export type EntryState = "empty" | "written" | "erased";
 function getEntryState(state: EntryState): number {
@@ -30,6 +34,9 @@ function getEntryState(state: EntryState): number {
     }
     throw new Error(`invalid EntryState: ${ state }`);
 }
+const EntryStateMap: Record<number, EntryState> = {
+    0x00: "erased", 0x02: "written", 0x03: "empty"
+};
 
 export type EntryType = "u8" | "i8" | "u16" | "i16" | "u32" | "i32" |
   "u64" | "i64" | "string" | "blob" | "blob_data" | "blob_index" | "any";
@@ -51,6 +58,31 @@ function getEntryType(type: EntryType): number {
     }
     throw new Error(`invalid EntryType: ${ type }`);
 }
+const EntryTypeMap: Record<number, EntryType> = {
+    0x01: "u8", 0x11: "i8", 0x02: "u16", 0x12: "i16",
+    0x04:"u32", 0x14: "i32", 0x08: "u64", 0x18: "i64",
+    0x21: "string", 0x41: "blob", 0x42: "blob_data",
+    0x48: "blob_index", 0xff: "any"
+};
+
+export type NvsValueTypeJson = "u8" | "i8" | "u16" | "i16" |
+  "u32" | "i32" | "u64" | "i64";
+
+export interface NvsValueJson {
+    type: NvsValueTypeJson;
+    value: number;
+}
+
+export interface NvsBlobJson {
+    type: "blob" | "string";
+    value: string;
+}
+
+export interface NvsJson {
+    namespaces: Record<string,
+      Record<string, NvsBlobJson | NvsValueJson>>;
+}
+
 
 export type Value = number | string | Uint8Array;
 
@@ -108,9 +140,24 @@ export class Header {
         writeLe4(getPageState(this.state), result, 0);
         writeLe4(this.seqNo, result, 4);
         result[8] = 256 - this.version;
-        writeLe4(computeCrc(result.slice(4, 28), 0xffffffff), result, 28);
+        if (this.state !== "empty") {
+            writeLe4(computeCrc(result.slice(4, 28), 0xffffffff), result, 28);
+        }
 
         return result;
+    }
+
+    static fromBinary(data: Uint8Array): Header {
+        const state = PageStateMap[fromLeBytes(data.slice(0, 4))] || "corrupt";
+        const seqNo = fromLeBytes(data.slice(4, 8));
+        const version = 256 - data[8];
+        const checksum = data.slice(28);
+        const header = new Header(state, seqNo, version);
+        const computed = header.binary.slice(28);
+        assert(fromLeBytes(computed) === fromLeBytes(checksum), `checksum failed`, {
+            checksum, expected: computed
+        });
+        return header;
     }
 }
 
@@ -212,6 +259,8 @@ export class ValueEntry extends Entry {
 
         super(ns, key, _type, 1, 0xff, data);
     }
+
+    get value(): number { return fromLeBytes(this.data); }
 }
 
 export class NamespaceEntry extends ValueEntry {
@@ -292,24 +341,25 @@ export class StringEntry extends BlobEntry {
 export class Page {
 
     readonly #seqNo: number;
-    readonly #full: boolean;
+    #state: PageState;
     readonly #entries: Array<Entry>;
+
+    get seqNo(): number { return this.#seqNo; }
+    get state(): PageState { return this.#state; }
 
     get entries(): Array<Entry> { return this.#entries; }
     get header(): Header {
-        let state: PageState = "empty";
-        if (this.#entries.length) { state = "active"; }
-        if (this.#full) { state = "full"; }
-        return new Header(state, this.#seqNo);
+        return new Header(this.state, this.#seqNo);
     }
 
-    constructor(seqNo: number, full = false) {
+    constructor(seqNo: number, state: PageState) {
         this.#seqNo = seqNo;
-        this.#full = full;
+        this.#state = state;
         this.#entries = [ ];
     }
 
     addEntry(entry: Entry): void {
+        this.#state = "active";
         this.#entries.push(entry);
     }
 
@@ -358,11 +408,66 @@ export class Page {
 
         return result;
     }
+
+    static fromBinary(data: Uint8Array): Page {
+        const header = Header.fromBinary(data.slice(0, 32));
+        if (header.state === "empty") {
+            return new EmptyPage(header.seqNo);
+        }
+
+        const page = new Page(header.seqNo, header.state);
+
+        const getEntry = (i: number) => {
+            return data.slice((i + 2) * 32, (i + 3) * 32);
+        };
+
+        let nextNs = 1;
+
+        const stateBitmap = data.slice(32, 64);
+        for (let i = 0; i < 126; i++) {
+            const slot = Math.trunc(i / 4);
+            const offset = (i % 4) * 2;
+            const s = EntryStateMap[(stateBitmap[slot] >> offset) & 0x03];
+            const d = getEntry(i);
+            if (s === "empty") { continue; }
+
+            const ns = d[0];
+            const type = EntryTypeMap[d[1]];
+            const span = d[2];
+            //const cunkIndex = d[3];
+            //const crc = d.slice(4, 8);
+            const key = extractString(d.slice(8, 24));
+            const value = d.slice(24);
+
+            let entry: Entry;
+            if (ns === 0) {
+                entry = new NamespaceEntry(nextNs++, key);
+            } else if (type.match(/^[iu](8|16|32|64)$/)) {
+                entry = new ValueEntry(ns, key, fromLeBytes(value), type);
+            } else if (type === "blob_data") {
+                const length = fromLeBytes(value.slice(0, 2));
+                const blob: Array<Uint8Array> = [ ];
+                for (let j = 1; j < span; j++) {
+                    blob.push(getEntry(++i));
+                }
+
+                entry = new BlobEntry(ns, key, concat(blob).slice(0, length));
+                // @TODO: get this entry and make sure it matches the
+                //        expected blob index
+                i++;
+            } else {
+                throw new Error("unsupporte");
+            }
+
+            page.addEntry(entry);
+        }
+        return page;
+    }
 }
 
 export class EmptyPage extends Page {
     constructor(seqNo: number) {
-        super(seqNo, false);
+        super(seqNo, "empty");
     }
 
     get binary(): Uint8Array {
@@ -370,7 +475,6 @@ export class EmptyPage extends Page {
         result.fill(0xff);
         return result;
     }
-
 }
 
 export class NVSData {
@@ -385,8 +489,8 @@ export class NVSData {
 
     get binary(): Uint8Array {
         const pages: Array<Page> = [
-            new Page(0, true),
-            new Page(1, true),
+            new Page(0, "full"),
+            new Page(1, "full"),
             new EmptyPage(2),
         ];
 
@@ -408,6 +512,42 @@ export class NVSData {
         }
 
         return concat(pages.map(p => p.binary));
+    }
+
+    get csv(): string {
+        const result: Array<string> = [ "key, type, encoding, value" ];
+        for (const [ namespace, kvs ] of this.#data) {
+            result.push(`${ namespace }, namespace, ,`);
+            for (const [ key, _value ] of kvs) {
+                const { value, type } = _value;
+                if (value instanceof Uint8Array) {
+                    result.push(`${ key }, data, hex, ${ hexlify(value) }`);
+                } else {
+                    result.push(`${ key }, data, ${ type }, ${ value }`);
+                }
+            }
+        }
+        return result.join("\n");
+    }
+
+    get json(): NvsJson {
+        const result: Record<string, Record<string, NvsBlobJson | NvsValueJson>> = { };
+        for (const [ namespace, kvs ] of this.#data) {
+            const values: Record<string, NvsBlobJson | NvsValueJson> = { };
+            result[namespace] = values;
+            for (const [ key, _value ] of kvs) {
+                const { value, type } = _value;
+                if (value instanceof Uint8Array) {
+                    values[key] = { "type": "blob", value: hexlify(value) };
+                } else {
+                    values[key] = {
+                        type: <NvsValueTypeJson>type,
+                        value: <number>value
+                    };
+                }
+            }
+        }
+        return { namespaces: result };
     }
 
     #get(namespace: string, key: string): null | TypedValue {
@@ -441,8 +581,10 @@ export class NVSData {
                 } else if (value < -0x80000000) {
                     type = "i32";
                 }
+            } else if (value instanceof Uint8Array) {
+                type = "blob";
             } else {
-                throw new Error("oops?");
+                throw new Error(`cannot guess: ${ value }`);
             }
         }
         if (type == null) { throw new Error("foo"); }
@@ -458,10 +600,27 @@ export class NVSData {
     }
 
     static fromBinary(data: Uint8Array): NVSData {
-        throw new Error();
+        const nvs = new NVSData(data.length);
+
+        let namespace = "_";
+        for (let i = 0; i < data.length; i += 4096) {
+            const page = Page.fromBinary(data.slice(i, i + 4096));
+            for (const entry of page.entries) {
+                if (entry instanceof NamespaceEntry) {
+                    namespace = entry.key;
+                } else if (entry instanceof ValueEntry) {
+                    nvs.set(namespace, entry.key, entry.value, entry.type);
+                } else if (entry instanceof BlobEntry) {
+                    nvs.set(namespace, entry.key, entry.blobData, "blob");
+                }
+            }
+        }
+        return nvs;
     }
 }
 
+
+/*
 function decode(chunk: Uint8Array): string {
     let result = "";
     for (let i = 0; i < chunk.length; i++) {
@@ -485,8 +644,6 @@ function pad(v: string): string {
     while (v.length < 8) { v = "0" + v; }
     return v;
 }
-
-import fs from "fs";
 
 const expected = fs.readFileSync("obsolete/test-nvs/test0.bin");
 const actual = nvs.binary;
@@ -532,3 +689,11 @@ function dump(from: number, to: number, onlyDiff: boolean) {
 
 //dump(0x1000 - 32, 0x1000 + 64, false);
 dump(0, actual.length, true);
+*/
+/*
+import fs from "fs";
+
+const nvs = NVSData.fromBinary(fs.readFileSync("./test-attest.bin"));
+//console.log(nvs);
+console.log(JSON.stringify(nvs.json));
+*/

@@ -1,4 +1,4 @@
-import { verify } from "./attest.js";
+import { verify } from "../attest.js";
 
 const test0 = `
     0107b42ae4b418f4a7ab2ecde361e06e3a000102030405060708090a0b0c0d0e

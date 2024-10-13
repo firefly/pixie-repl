@@ -1,5 +1,7 @@
 
-import { assert, concat, stall } from "./utils.js";
+import { assert } from "./utils/errors.js";
+import { concat } from "./utils/data.js";
+import { stall } from "./utils/timer.js";
 
 import type { SerialPort as _SerialPort} from "./serial.js";
 
