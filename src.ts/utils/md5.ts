@@ -1,6 +1,36 @@
-//import forge from "node-forge";
-import { createHash } from "crypto";
-import { concat } from "./utils.js";
+/**
+ *  This is copied (basically) verbatim from node-forge, with the
+ *  necessary TypeScript-ification along the way. As such, the
+ *  license used is passed along. ~RicMoo
+ *
+ *  New BSD License (3-clause)
+ *  Copyright (c) 2010, Digital Bazaar, Inc.
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions are met:
+ *      * Redistributions of source code must retain the above copyright
+ *        notice, this list of conditions and the following disclaimer.
+ *      * Redistributions in binary form must reproduce the above copyright
+ *        notice, this list of conditions and the following disclaimer in the
+ *        documentation and/or other materials provided with the distribution.
+ *      * Neither the name of Digital Bazaar, Inc. nor the
+ *        names of its contributors may be used to endorse or promote products
+ *        derived from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ *  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ *  DISCLAIMED. IN NO EVENT SHALL DIGITAL BAZAAR BE LIABLE FOR ANY
+ *  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ *  (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ *  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ *  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+import { concat, fromLeBytes, toLeBytes } from "./data.js";
 
 
 class ByteBuffer {
@@ -26,22 +56,12 @@ class ByteBuffer {
     }
 
     putInt32Le(value: number): void {
-        this.putBytes(new Uint8Array([
-            value & 0xff,
-            (value >> 8) & 0xff,
-            (value >> 16) & 0xff,
-            (value >> 24) & 0xff,
-        ]));
+        this.putBytes(toLeBytes(value, 4));
     }
 
     getInt32Le(): number {
-        const rval = (
-            this._data[this._read] ^
-            this._data[this._read + 1] << 8 ^
-            this._data[this._read + 2] << 16 ^
-            this._data[this._read + 3] << 24);
         this._read += 4;
-        return rval;
+        return fromLeBytes(this._data.slice(this._read - 4, this._read));
     }
 }
 
@@ -74,7 +94,6 @@ export class Md5 {
         this.messageLengthSize = 8;
 
         // full message length (set md.messageLength64 for backwards-compatibility)
-        //this.fullMessageLength = md.messageLength64 = [];
         this.fullMessageLength = [];
         const int32s = this.messageLengthSize / 4;
         for(let i = 0; i < int32s; ++i) {
@@ -180,7 +199,7 @@ export class Md5 {
         const s2 = {
             h0: this._state.h0,
             h1: this._state.h1,
-             h2: this._state.h2,
+            h2: this._state.h2,
             h3: this._state.h3
         };
         _update(s2, this._w, finalBlock);
@@ -192,34 +211,13 @@ export class Md5 {
         rval.putInt32Le(s2.h3);
 
         return rval.bytes;
-      };
+    };
+
+    static hash(data: Uint8Array): Uint8Array {
+        return (new Md5()).update(data).digest();
+    }
 }
 
-/*
-// padding, constant tables for calculating md5
-export const _paddingOrig = (function() {
-  function fillString(c: string, n: number): string {
-    var s = '';
-    while(n > 0) {
-      if(n & 1) {
-        s += c;
-      }
-      n >>>= 1;
-      if(n > 0) {
-        c += c;
-      }
-    }
-    return s;
-  };
-
-  // create padding
-  let _padding = String.fromCharCode(128);
-  _padding += fillString(String.fromCharCode(0x00), 64);
-  const t = Buffer.from(_padding);
-  console.log(t.toString("hex"), t.length, _padding.length);
-  return _padding;
-})();
-*/
 export const _padding = new Uint8Array(65);
 _padding[0] = 128;
 
@@ -251,78 +249,81 @@ for(let i = 0; i < 64; ++i) {
  * @param bytes the byte buffer to update with.
  */
 function _update(s: Record<string, number>, w: Array<number>, bytes: ByteBuffer): void {
-  // consume 512 bit (64 byte) chunks
-  var t, a, b, c, d, f, r, i;
-  var len = bytes.length;
-  while(len >= 64) {
-    // initialize hash value for this chunk
-    a = s.h0;
-    b = s.h1;
-    c = s.h2;
-    d = s.h3;
+    // consume 512 bit (64 byte) chunks
+    var t, a, b, c, d, f, r, i;
+    var len = bytes.length;
+    while(len >= 64) {
+        // initialize hash value for this chunk
+        a = s.h0;
+        b = s.h1;
+        c = s.h2;
+        d = s.h3;
 
-    // round 1
-    for(i = 0; i < 16; ++i) {
-      w[i] = bytes.getInt32Le();
-      f = d ^ (b & (c ^ d));
-      t = (a + f + _k[i] + w[i]);
-      r = _r[i];
-      a = d;
-      d = c;
-      c = b;
-      b += (t << r) | (t >>> (32 - r));
-    }
+        // round 1
+        for(i = 0; i < 16; ++i) {
+            w[i] = bytes.getInt32Le();
+            f = d ^ (b & (c ^ d));
+            t = (a + f + _k[i] + w[i]);
+            r = _r[i];
+            a = d;
+            d = c;
+            c = b;
+            b += (t << r) | (t >>> (32 - r));
+        }
 
-    // round 2
-    for(; i < 32; ++i) {
-      f = c ^ (d & (b ^ c));
-      t = (a + f + _k[i] + w[_g[i]]);
-      r = _r[i];
-      a = d;
-      d = c;
-      c = b;
-      b += (t << r) | (t >>> (32 - r));
-    }
-    // round 3
-    for(; i < 48; ++i) {
-      f = b ^ c ^ d;
-      t = (a + f + _k[i] + w[_g[i]]);
-      r = _r[i];
-      a = d;
-      d = c;
-      c = b;
-      b += (t << r) | (t >>> (32 - r));
-    }
-    // round 4
-    for(; i < 64; ++i) {
-      f = c ^ (b | ~d);
-      t = (a + f + _k[i] + w[_g[i]]);
-      r = _r[i];
-      a = d;
-      d = c;
-      c = b;
-      b += (t << r) | (t >>> (32 - r));
-    }
+        // round 2
+        for(; i < 32; ++i) {
+            f = c ^ (d & (b ^ c));
+            t = (a + f + _k[i] + w[_g[i]]);
+            r = _r[i];
+            a = d;
+            d = c;
+            c = b;
+            b += (t << r) | (t >>> (32 - r));
+        }
 
-    // update hash state
-    s.h0 = (s.h0 + a) | 0;
-    s.h1 = (s.h1 + b) | 0;
-    s.h2 = (s.h2 + c) | 0;
-    s.h3 = (s.h3 + d) | 0;
+        // round 3
+        for(; i < 48; ++i) {
+            f = b ^ c ^ d;
+            t = (a + f + _k[i] + w[_g[i]]);
+            r = _r[i];
+            a = d;
+            d = c;
+            c = b;
+            b += (t << r) | (t >>> (32 - r));
+        }
 
-    len -= 64;
-  }
+        // round 4
+        for(; i < 64; ++i) {
+            f = c ^ (b | ~d);
+            t = (a + f + _k[i] + w[_g[i]]);
+            r = _r[i];
+            a = d;
+            d = c;
+            c = b;
+            b += (t << r) | (t >>> (32 - r));
+        }
+
+        // update hash state
+        s.h0 = (s.h0 + a) | 0;
+        s.h1 = (s.h1 + b) | 0;
+        s.h2 = (s.h2 + c) | 0;
+        s.h3 = (s.h3 + d) | 0;
+
+        len -= 64;
+    }
 }
 
+/*
 import { randomBytes } from "ethers";
 const message = randomBytes(10240);// new Uint8Array([ 0x31, 0x32, 0x33, 0x34 ]);
 {
-  const md5 = new Md5();
-  md5.update(message);
-  console.log(Buffer.from(md5.digest()).toString("hex"));
+  //const md5 = new Md5();
+  console.log(Buffer.from(Md5.hash(message)).toString("hex"));
 }
 {
   const hasher = createHash("md5");
   hasher.update(message);
   console.log(Buffer.from(hasher.digest()).toString("hex"));
 }
+*/

@@ -8,23 +8,28 @@
  *    Protocol: https://docs.espressif.com/projects/esptool/en/latest/esp32/advanced-topics/serial-protocol.html
  */
 
-import { randomBytes } from "ethers";
+import { decodeBase64, hexlify, randomBytes, sha256 } from "ethers";
 
 import { slipDecode, slipEncode } from "./slip.js";
 import {
-    CMD_FFX_GENKEY, CMD_FFX_STIR_ENTROPY, CMD_FFX_VERIFY, CMD_FFX_VERSION,
+    CMD_FFX_GENKEY, CMD_FFX_READ_RLE, CMD_FFX_STIR_ENTROPY,
+    CMD_FFX_VERIFY, CMD_FFX_VERSION,
     CMD_FLASH_BEGIN, CMD_FLASH_DATA, CMD_FLASH_END,
+    CMD_FLASH_DEFL_BEGIN, CMD_FLASH_DEFL_DATA, CMD_FLASH_DEFL_END,
     CMD_MEM_BEGIN, CMD_MEM_DATA, CMD_MEM_END, CMD_READ_REG,
-    CMD_READ_FLASH, CMD_WRITE_REG, CMD_SYNC,
+    CMD_READ_FLASH, CMD_SYNC,
     computeChecksum, getErrorMessage, syncPacket
 } from "./protocol.js";
+import { Md5 } from "./utils/md5.js";
+import { PartitionTable } from "./partition.js";
 import {
-    assert, concat, fromLeBytes, hexlify, md5, sha256, stall, toLeBytes
+    assert, concat, fromLeBytes, stall, toLeBytes
 } from "./utils.js";
 
 import type { SerialPort } from "./serial.js";
 import type  { Stub } from "./stubs/stub.js";
 
+export type ProgressFunc = (percent: number) => void;
 
 export const Sequences: Record<string, string> = {
     Reset: "R 100 D 50 N",
@@ -34,9 +39,11 @@ export const Sequences: Record<string, string> = {
 
 export interface DeviceInfo {
     chip: string;
+    flashSize: number;
     modelName: string;
-    modelNumber: number;
-    serialNumber: number;
+    model: number;
+    serial: number;
+    version: number;
 }
 
 export interface DeviceOptions {
@@ -45,9 +52,14 @@ export interface DeviceOptions {
 };
 
 export interface ResultGenkey {
-    ciphertext: Uint8Array,
+    cipherdata: Uint8Array,
+    marker: Uint8Array;
     pubkeyN: Uint8Array
 }
+
+export type DeviceRegister = "NULL" | "SPI_USR_OFFS" | "SPI_USR2_OFFS" |
+  "SPI_W0_OFFS";
+
 
 /**
  *  The **BaseDevice** class is a minimal implementation of
@@ -64,6 +76,9 @@ export abstract class Device {
     #maxWriteBuffer: number;
 
     #stub: string;
+    #stubPromise?: Promise<void>;
+
+    #bootMode: boolean;
 
     constructor(serial: SerialPort, options?: DeviceOptions) {
         if (options == null) { options = { }; }
@@ -76,6 +91,7 @@ export abstract class Device {
         this.#maxWriteBuffer = getValue("invalid options.maxWriteBuffer", options.maxReadBuffer, 1 << 20);
 
         this.#stub = "";
+        this.#bootMode = false;
     }
 
     get _maxReadBuffer(): number { return this.#maxReadBuffer; }
@@ -84,10 +100,20 @@ export abstract class Device {
     get _available(): number { return sum(this.#readBuffer); }
     get _backlog(): number { return sum(this.#writeBuffer); }
 
+    get isBootMode(): boolean { return this.#bootMode; }
+
+    /**
+     *  Halts any executing code on the device and enters ROM
+     *  bootmode. The stub is not loaded at this point, but
+     *  any attempt to use operations that require the stub
+     *  will automatically upload it to RAM and start it.
+     */
     async connect(): Promise<number> {
         await this.serial.connect();
 
-        await this._reset();
+        await this.serial.reset(true);
+        this.#bootMode = true;
+
         await stall(50);
         await this._read();  // Flush
 
@@ -95,13 +121,18 @@ export abstract class Device {
         await stall(100);
         await this._read();  // Flush
 
-        const magic = await this._readRegister(0x40001000);
+        return await this._readRegister(0x40001000);
+    }
 
-        assert(this.checkMagic(magic), `invalid magic number: ${ magic}`, {
-            magic
-        });
-
-        return magic;
+    /**
+     *  Resets the device (leaving bootmode) executing any
+     *  firmware flashed on the device;
+     */
+    async reset(): Promise<void> {
+        this.#stub = "";
+        this.#stubPromise = undefined;
+        await this.serial.reset();
+        this.#bootMode = false;
     }
 
     _debug(data: string): void {
@@ -190,33 +221,6 @@ export abstract class Device {
         return this._write(slipEncode(data));
     }
 
-    /**
-     *  Reset the connected device, optionally providing a reset
-     *  %%sequence%% for fine control over the DTR/RTS signals.
-     */
-    async _reset(sequence?: string): Promise<void> {
-        if (sequence == null) { sequence = Sequences.ResetUsb; }
-
-        for (const cmd of sequence.split(/ /g)) {
-            switch (cmd) {
-                case "N":
-                    await this.serial.signal({ });
-                    break;
-                case "D":
-                    await this.serial.signal({ dtr: true });
-                    break;
-                case "R":
-                    await this.serial.signal({ rts: true });
-                    break;
-                case "DR": case "RD":
-                    await this.serial.signal({ dtr: true, rts: true });
-                    break;
-                default:
-                    await stall(parseInt(cmd));
-            }
-        }
-    }
-
     async _sync(): Promise<any> {
         return await this._command(CMD_SYNC, syncPacket());
     }
@@ -263,88 +267,6 @@ export abstract class Device {
         return fromLeBytes(result);
     }
 
-    async _spiFlashCommand(command: number, data: Uint8Array, responseBits: number): Promise<number> {
-        assert(responseBits <= 32, "max SPI response length is 32 bits", {
-            length: responseBits
-        });
-
-        assert(data.length <= 64, "max SPI request length is 64 bytes", {
-            length: data.length
-        });
-
-        const oldSpiUsr = await this._readSpiRegister(this.SPI_USR_OFFS);
-        const oldSpiUsr2 = await this._readSpiRegister(this.SPI_USR2_OFFS);
-
-        await this._setDataLengths(data.length * 8, responseBits);
-
-        {
-            let flags = SPI_USR_COMMAND;
-            if (responseBits > 0) { flags |= SPI_USR_MISO; }
-            if (data.length) { flags |= SPI_USR_MOSI; }
-            await this._writeSpiRegister(this.SPI_USR_OFFS, flags);
-        }
-
-        {
-            const val = (7 << SPI_USR2_COMMAND_LEN_SHIFT) | command;
-            await this._writeSpiRegister(this.SPI_USR2_OFFS, val);
-        }
-
-        {
-            let reg = this.SPI_W0_OFFS;
-
-            if (data.length === 0) {
-                await this._writeSpiRegister(reg, 0);
-            } else {
-                // TODO: I think this logic is wrong; copied mostly
-                // from esptool-js, but the padding looks backwards
-                if (data.length % 4 != 0) {
-                    const padding = new Uint8Array(data.length % 4);
-                    data = concat([ data, padding ]);
-                }
-                // TODO: This also looks wrong; like it stops short?
-                for (let i = 0; i < data.length - 4; i += 4) {
-                    await this._writeSpiRegister(reg, fromLeBytes(data.slice(i, i + 4)));
-                    reg += 4;
-                }
-            }
-        }
-
-        await this._writeSpiRegister(0x00, SPI_CMD_USR);
-
-        for (let i = 0; i < 11; i++) {
-            const val = (await this._readSpiRegister(0x00)) & SPI_CMD_USR;
-            if (val == 0) { break; }
-            assert(i < 10, "SPI command did not complete in time");
-        }
-
-        const status = await this._readSpiRegister(this.SPI_W0_OFFS);
-
-        await this._writeSpiRegister(this.SPI_USR_OFFS, oldSpiUsr);
-        await this._writeSpiRegister(this.SPI_USR2_OFFS, oldSpiUsr2);
-
-        return status;
-    }
-
-    async _readSpiRegister(offset: number): Promise<number> {
-        return await this._readRegister(this.registerAddress(offset));
-    }
-
-    async _writeSpiRegister(offset: number, value: number, mask?: number, delayUs?: number, delayAfterUs?: number): Promise<void> {
-        const address = this.registerAddress(offset);
-
-        if (mask == null) { mask = 0xffffffff; }
-        if (delayUs == null) { delayUs = 0; }
-
-        const fields = [ address, value, mask, delayUs ];
-        if (delayAfterUs) {
-            fields.push(this.UART_DATE_REG_ADDR, 0, 0, delayAfterUs);
-        }
-
-        const packet = concat(fields.map((v) => toLeBytes(v, 4)));
-
-        await this._command(CMD_WRITE_REG, packet);
-    }
-
     async #uploadMemory(offset: number, data: Uint8Array, entryPoint?: number): Promise<void> {
         const blockCount = Math.ceil(data.length / RAM_BLOCK_SIZE);
 
@@ -381,23 +303,32 @@ export abstract class Device {
             while (ohai == null) {
                 await stall(10);
                 ohai = await this._readSlipPacket();
-                if (ohai && hexlify(ohai) === "4f484149") { break; }
+                if (ohai && hexlify(ohai) === "0x4f484149") { break; }
             }
         }
     }
 
     async _enableStub(): Promise<string> {
-        if (!this.#stub) {
-            await this.#uploadMemory(this.stub.text_start, Buffer.from(this.stub.text, "base64"));
-            await this.#uploadMemory(this.stub.data_start, Buffer.from(this.stub.data, "base64"), this.stub.entry);
+        if (this.#stubPromise == null) {
+            this.#stubPromise = (async () => {
+                const stub = await this._getStub();
 
-            const version = fromLeBytes(await this._command(CMD_FFX_VERSION));
-            const major = version >> 24;
-            const minor = (version >> 16) & 0xff;
-            const patch = version & 0xffff;
+                await this.#uploadMemory(stub.text_start,
+                  decodeBase64(stub.text));
+                await this.#uploadMemory(stub.data_start,
+                  decodeBase64(stub.data), stub.entry);
 
-            this.#stub = `${ major }.${ minor }.${ patch }`;
+                const version = fromLeBytes(await this._command(CMD_FFX_VERSION));
+
+                const major = version >> 24;
+                const minor = (version >> 16) & 0xff;
+                const patch = version & 0xffff;
+
+                this.#stub = `${ major }.${ minor }.${ patch }`;
+            })();
         }
+
+        await this.#stubPromise;
 
         return this.#stub;
     }
@@ -412,7 +343,7 @@ export abstract class Device {
         ])));
     }
 
-    async readFlash(offset: number, length: number): Promise<Uint8Array> {
+    async _readFlashOld(offset: number, length: number, progress?: ProgressFunc): Promise<Uint8Array> {
         const version = await this._enableStub();
         assert(version === "0.1.0", `unknown Stub version`, { version });
 
@@ -439,6 +370,14 @@ export abstract class Device {
                     this._debug(block.debug);
                     continue;
                 }
+
+                if (block.data.length === 3) {
+                    const length = (block.data[0] << 8) | block.data[1];
+                    const same = block.data[2];
+                    block.data = new Uint8Array(length);
+                    block.data.fill(same);
+                }
+
                 blocks.push(block.data);
 
                 readCount += block.data.length;
@@ -447,6 +386,7 @@ export abstract class Device {
                 // ACK
                 await this._writeSlipPacket(toLeBytes(readCount, 4));
             }
+            if (progress) { progress(readCount / length); }
         }
 
         const result = concat(blocks);
@@ -461,7 +401,7 @@ export abstract class Device {
                 continue;
             }
             const checksum = hexlify(_checksum.data);
-            const computed = hexlify(md5(result));
+            const computed = hexlify(Md5.hash(result));
             assert(checksum === computed, `checksum failed`, {
                 checksum, computed
             });
@@ -471,9 +411,139 @@ export abstract class Device {
         return result;
     }
 
-    async writeFlash(offset: number, data: Uint8Array, reset?: boolean): Promise<string> {
+    async readFlash(offset: number, length: number, progress?: ProgressFunc): Promise<Uint8Array> {
         const version = await this._enableStub();
         assert(version === "0.1.0", `unknown Stub version`, { version });
+
+        let lastPercent = 0;
+        if (progress) { progress(lastPercent); }
+
+        await this._command(CMD_FFX_READ_RLE, concat([
+            toLeBytes(offset, 4),
+            toLeBytes(length, 4),
+        ]));
+
+        const blocks: Array<Uint8Array> = [ ];
+        let readCount = 0;
+
+        let pending: Uint8Array = new Uint8Array(0);
+        while (readCount < length) {
+            pending = concat([ pending, await this._read() ]);
+            if (pending.length == 0) { continue; }
+
+            while (true) {
+                const block = slipDecode(pending);
+                if (block == null) { break; }
+
+                if ('debug' in block) {
+                    this._debug(block.debug);
+                    continue;
+                }
+                pending = block.remaining;
+
+                let data: null | Uint8Array = null;
+                switch(block.data[0]) {
+                    case 0:
+                        data = block.data.slice(4);
+                        break;
+                    case 1: {
+                        const l = fromLeBytes(block.data.slice(2, 4));
+                        data = new Uint8Array(l);
+                        data.fill(block.data[1]);
+                        break;
+                    }
+                    case 2:
+                        if (hexlify(block.data.slice(4)) !== sha256(concat(blocks))) {
+                            throw new Error(`bad checksum`);
+                        }
+                        break;
+                    default:
+                        throw new Error("");
+                }
+
+                if (data == null) { break; }
+
+                blocks.push(data);
+                readCount += data.length;
+            }
+
+            const percent = Math.floor(100 * readCount / length);
+            if (progress && percent != lastPercent) {
+                progress(percent);
+                lastPercent = percent;
+            }
+        }
+
+        if (progress) { progress(100); }
+
+        return concat(blocks);
+    }
+
+    async writeFlashCompressed(offset: number, data: Uint8Array, progress?: ProgressFunc): Promise<string> {
+        const version = await this._enableStub();
+        assert(version === "0.1.0", `unknown Stub version`, { version });
+
+        assert(fromLeBytes(data.slice(0, 4)) === 0x7a62696e,
+          `invalid compressed image`, { data });
+
+        let lastPercent = 0;
+        if (progress) { progress(lastPercent); }
+
+        const size = fromLeBytes(data.slice(4, 8));
+
+        const expected = hexlify(data.slice(8, 8 + 32));
+
+        data = data.slice(8 + 32);
+
+        const blockCount = Math.ceil(data.length / FLASH_BLOCK_SIZE);
+
+        await this._command(CMD_FLASH_DEFL_BEGIN, concat([
+            toLeBytes(size, 4),
+            toLeBytes(blockCount, 4),
+            toLeBytes(FLASH_BLOCK_SIZE, 4),
+            toLeBytes(offset, 4),
+        ]));
+
+        // docs say to pad the blocks, but that seems to break CRC
+        for (let i = 0; i < blockCount; i++) {
+            const start = i * FLASH_BLOCK_SIZE;
+
+            const block = data.slice(start, start + FLASH_BLOCK_SIZE);
+
+            await this._command(CMD_FLASH_DEFL_DATA, concat([
+                toLeBytes(block.length, 4),
+                toLeBytes(i, 4),
+                toLeBytes(0, 4),
+                toLeBytes(0, 4),
+                block
+            ]), computeChecksum(block));
+
+            const percent = Math.floor(100 * i / blockCount);
+            if (progress && percent != lastPercent) {
+                progress(percent);
+                lastPercent = percent;
+            }
+        }
+
+        await this._command(CMD_FLASH_DEFL_END, toLeBytes(1, 4));
+
+        const checksum = await this.verifyFlash(offset, size);
+        assert(checksum === expected, `writeFlash failed checksum`, {
+            checksum, expected
+        });
+
+        if (progress) { progress(100); }
+
+        return checksum;
+
+    }
+
+    async writeFlash(offset: number, data: Uint8Array, progress?: ProgressFunc): Promise<string> {
+        const version = await this._enableStub();
+        assert(version === "0.1.0", `unknown Stub version`, { version });
+
+        let lastPercent = 0;
+        if (progress) { progress(lastPercent); }
 
         const blockCount = Math.ceil(data.length / FLASH_BLOCK_SIZE);
 
@@ -488,7 +558,7 @@ export abstract class Device {
         for (let i = 0; i < blockCount; i++) {
             const start = i * FLASH_BLOCK_SIZE;
 
-            let block = data.slice(start, start + FLASH_BLOCK_SIZE);
+            const block = data.slice(start, start + FLASH_BLOCK_SIZE);
 
             await this._command(CMD_FLASH_DATA, concat([
                 toLeBytes(block.length, 4),
@@ -497,28 +567,38 @@ export abstract class Device {
                 toLeBytes(0, 4),
                 block
             ]), computeChecksum(block));
+
+            const percent = Math.floor(100 * i / blockCount);
+            if (progress && percent != lastPercent) {
+                progress(percent);
+                lastPercent = percent;
+            }
         }
 
+        await this._command(CMD_FLASH_END, toLeBytes(1, 4));
+
         const checksum = await this.verifyFlash(offset, data.length);
-        const expected = hexlify(sha256(data));
+        const expected = sha256(data);
         assert(checksum === expected, `writeFlash failed checksum`, {
             checksum, expected
         });
 
-        if (reset) {
-            await stall(3);
-            await this._command(CMD_FLASH_END, toLeBytes(0, 4));
-        }
+        if (progress) { progress(100); }
 
         return checksum;
     }
 
-    async genkey(): Promise<ResultGenkey> {
+    async readPartitionTable(): Promise<PartitionTable> {
+        const info = await this.getDeviceInfo();
+        return PartitionTable.from(await this.readFlash(0x8000, 0x1000), info.flashSize);
+    }
+
+    async generateKey(): Promise<ResultGenkey> {
         const version = await this._enableStub();
         assert(version === "0.1.0", `unknown Stub version`, { version });
 
         const getKey = (tag: string) => {
-            return ({ C: 'ciphertext', P: 'pubkeyN' }[tag]) || "unknown";
+            return ({ C: "cipherdata", P: "pubkeyN", M: "marker" }[tag]) || "unknown";
         };
 
         // Add some extra entropy to the device
@@ -542,37 +622,11 @@ export abstract class Device {
         return result;
     }
 
-
-    /**
-     *  Returns true if this **Device** supports the %%magic%%
-     *  number. This is used in connect to validate the expected
-     *  devices matches the connected device.
-     */
-    abstract checkMagic(magic: number): boolean;
-
-    abstract stub: Stub;
+    abstract _getStub(): Promise<Stub>;
 
     abstract getDeviceInfo(): Promise<DeviceInfo>;
-
-    abstract registerAddress(register: number): number;
-
-    abstract readonly SPI_USR_OFFS: number;
-    abstract readonly SPI_USR2_OFFS: number;
-    abstract readonly SPI_W0_OFFS: number;
-
-    abstract _setDataLengths(mosiLength: number, misoLength: number): Promise<void>;
-
-    abstract readonly UART_DATE_REG_ADDR: number;
 }
 
-// SPI_USR register flags
-const SPI_USR_COMMAND = (1 << 31) >>> 0;
-const SPI_USR_MISO = 1 << 28;
-const SPI_USR_MOSI = 1 << 27;
-
-const SPI_CMD_USR = 1 << 18;
-
-const SPI_USR2_COMMAND_LEN_SHIFT = 28;
 
 function getValue(message: string, value: undefined | number, fallback: number): number {
     if (value == null) { return fallback; }

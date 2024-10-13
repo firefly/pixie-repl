@@ -1,19 +1,3 @@
-//import forge from "node-forge";
-
-////////////////////////////////////////
-// Errors
-
-export function assert(cond: any, message: string, info?: Record<string, any>): asserts cond {
-    if (cond) { return; }
-    const error: any = new Error(message);
-    if (info) {
-        for (const key in info) { error[key] = info[key]; }
-    }
-    throw error;
-}
-
-////////////////////////////////////////
-// Data manipulation
 
 /**
  *  Concatenate an array of %%datas%% Uint8Arrays into a single
@@ -91,55 +75,3 @@ export function toLeBytes(value: bigint | number, width: number): Uint8Array {
 }
 
 
-////////////////////////////////////////
-// Promisification
-
-/**
- *  Returns a **Promise** that will resolve after %%duration%%.
- */
-export function stall(duration: number): Promise<void> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, duration);
-    });
-}
-
-
-////////////////////////////////////////
-// Strings
-
-/**
- *  Return a string by repeating the string %%c%% to %%length%%.
- */
-export function repeat(c: string, length: number): string {
-    assert(c.length > 0, "invalid string");
-
-    while (c.length < length) { c += c; }
-    return c.substring(0, length);
-}
-
-const _TextEncoder = new TextEncoder();
-export function toUtf8Bytes(text: string): Uint8Array {
-    return _TextEncoder.encode(text);
-}
-
-const _TextDecoder = new TextDecoder();
-export function toUtf8String(data: Uint8Array): string {
-    return _TextDecoder.decode(data);
-}
-
-export function extractString(data: Uint8Array): string {
-    let i = 0;
-    while (i < data.length && data[i] >= 32 && data[i] < 127) { i++; }
-    return toUtf8String(data.slice(0, i));
-}
-
-
-
-////////////////////////////////////////
-// Crypto
-
-export function md5(data: Uint8Array): string {
-//    const md = forge.md.md5.create();
-//    return md.digest().toHex();
-  return "";
-}

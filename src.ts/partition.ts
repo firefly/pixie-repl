@@ -1,6 +1,8 @@
-import { createHash } from "crypto";
-
-import { assert, toLeBytes, toUtf8Bytes } from "./utils.js";
+import {
+    assert,
+    fromLeBytes, toLeBytes, toUtf8Bytes, toUtf8String
+} from "./utils.js";
+import { Md5 } from "./utils/md5.js";
 
 
 // # 3K for partition data (96 entries) leaves 1K in a 4K sector for signature
@@ -26,6 +28,7 @@ function getType(type: Type): number {
     }
     throw new Error(`unknown Type: ${ type }`);
 }
+const TypeMap: Record<number, Type> = { 0: "app", 1: "data" };
 
 export type AppType = "factory" | "test" | "ota_0" | "ota_1";
 function getAppType(type: AppType): number {
@@ -36,6 +39,9 @@ function getAppType(type: AppType): number {
         case "test": return 0x20;
     }
     throw new Error(`unknown AppType: ${ type }`);
+}
+const AppTypeMap: Record<number, AppType> = {
+    0x00: "factory", 0x10: "ota_0", 0x11: "ota_1", 0x20: "test"
 }
 
 export type DataType = "ota" | "phy" | "nvs" | "coredump" |
@@ -57,6 +63,11 @@ function getDataType(type: DataType): number {
     }
     throw new Error(`invalid DataType: ${ type }`);
 }
+const DataTypeMap: Record<number, DataType> = {
+    0x00: "ota", 0x01: "phy", 0x02: "nvs", 0x03: "coredump",
+    0x04: "nvs_keys", 0x05: "efuse", 0x06: "undefined",
+    0x80: "esphttpd", 0x81: "fat", 0x82: "spiffs", 0x83: "littlefs"
+};
 
 export type SubTypes<T extends Type> =
     T extends "app" ? AppType:
@@ -69,6 +80,20 @@ function getSubtype<T extends Type>(type: T, subtype: SubTypes<T>): number {
     }
     throw new Error(`invalid Subtype: ${ type }`);
 }
+
+export interface PartitionJson {
+    name: string;
+    type: string;
+    subtype: string;
+    offset: number;
+    size: number;
+    isReadonly: boolean;
+}
+
+export interface PartitionTableJson {
+    version: string;
+    partitions: Array<PartitionJson>;
+};
 
 
 export class Partition<T extends Type> {
@@ -120,6 +145,7 @@ export class Partition<T extends Type> {
 
         return result;
     }
+
 }
 
 export class PartitionTable {
@@ -245,6 +271,60 @@ export class PartitionTable {
         return lines.join("\n");
     }
 
+    get csv(): string {
+        const pad = (text: string, length: number) => {
+            text += ', ';
+            while (text.length < length) { text += " "; }
+            return text;
+        };
+
+        const addr = (_v: number) => {
+            let v = _v.toString(16);
+            while (v.length < 7) { v = "0" + v; }
+            return "0x" + v + ",";
+        };
+
+        const lines: Array<string> = [ ];
+        lines.push([
+            pad("# Name", 16),
+            pad("Type", 7),
+            pad("Subtype", 9),
+            pad("Offset", 10),
+            pad("Size", 10),
+            "Flags"
+        ].join(" "));
+
+
+        for (const r of this.#records) {
+            let flags = "";
+            if (r.isReadonly) { flags += "readonly"; }
+            lines.push([
+                pad(r.name, 16),
+                pad(r.type, 7),
+                pad(r.subtype, 9),
+                addr(r.offset),
+                addr(r.size),
+                flags
+            ].join(" "));
+        }
+        return lines.join("\n");
+    }
+
+    get json(): PartitionTableJson {
+        const partitions: Array<PartitionJson> = [ ];
+        for (const r of this.#records) {
+            partitions.push({
+                name: r.name,
+                type: r.type,
+                subtype: r.subtype,
+                offset: r.offset,
+                size: r.size,
+                isReadonly: r.isReadonly,
+            });
+        }
+        return { version: "0.1", partitions };
+    }
+
     get binary(): Uint8Array {
         const result = new Uint8Array(PartitionTableSize);
         result.fill(0xff);
@@ -256,7 +336,7 @@ export class PartitionTable {
             offset += bin.length
         }
 
-        const checksum = md5(result.slice(0, offset));
+        const checksum = Md5.hash(result.slice(0, offset));
 
         result.set(EndMarker, offset);
         offset += EndMarker.length;
@@ -266,18 +346,46 @@ export class PartitionTable {
 
         return result;
     }
+
+    static from(data: Uint8Array, size = 0): PartitionTable {
+        assert(data.length === 4096, `unexpected data length`, {
+            data
+        });
+
+        const result = new PartitionTable(size);
+
+        for (let i = 0; i < data.length; i += 32) {
+            const d = data.slice(i, i + 32);
+            if (d[0] === EndMarker[0] && d[1] === EndMarker[1]) {
+                break;
+            }
+            assert(d[0] === Magic[0] && d[1] === Magic[1], `invalid magic number`, {
+                data, offset: i
+            });
+            const type = TypeMap[d[2]];
+            assert(type, `unknown partition type`, { data, type: d[2] });
+            const subtype = (type === "app") ? AppTypeMap[d[3]]:
+              DataTypeMap[d[3]];
+            assert(subtype, `unknown partition subtype`, { data, subtype: d[3] });
+            const offset = fromLeBytes(d.slice(4, 8));
+            const size = fromLeBytes(d.slice(8, 12));
+
+            const _name = d.slice(12, 12 + 16);
+            let np = 0;
+            while (np < _name.length && _name[++np]);
+            const name = toUtf8String(_name.slice(0, np));
+
+            const flags = fromLeBytes(d.slice(28));
+            const isReadonly = !!(flags & FlagReadOnly);
+
+            result.addPartition(name, type, subtype, offset, size, isReadonly);
+        }
+
+        return result;
+    }
 }
 
-
-function md5(data: Uint8Array): Uint8Array {
-    const hasher = createHash("md5");
-    hasher.update(data);
-    return hasher.digest();
-}
-
-
-
-
+/*
 import { BinDiff } from "./debug.js";
 
 import fs from "fs";
@@ -301,3 +409,5 @@ const diff = new BinDiff(table.binary, expected);
 diff.dump(0, undefined, true);
 
 console.log(table.summary());
+console.log(table.csv);
+*/
