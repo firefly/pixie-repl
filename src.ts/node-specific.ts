@@ -3,26 +3,40 @@ import { join } from "path";
 
 import ioctl from "ioctl";
 
-import { SerialPort as _SerialPort } from "./serial.js"
+import type { SerialPort as _SerialPort } from "./serial.js"
 import { concat, stall } from "./utils.js";
 
-const TIOCMGET = 0x4004746a, TIOCMSET = 0x8004746d;
+//const TIOCMGET = 0x4004746a, TIOCMSET = 0x8004746d;
+const TIOCMSET = 0x8004746d;
 const TIOCM_RTS = 4, TIOCM_DTR = 2;
 
-export class SerialPort extends _SerialPort {
+export class SerialPort implements _SerialPort {
     readonly filename: string;
     #fd: null | number;
 
     constructor(filename: string) {
-        super();
         this.filename = filename;
         this.#fd = null;
     }
+
+    get name(): string { return this.filename; }
 
     async connect(): Promise<void> {
         if (this.#fd != null) { throw new Error("already connected"); }
         this.#fd = fs.openSync(this.filename, fs.constants.O_RDWR | fs.constants.O_NONBLOCK);
         await stall(5);
+    }
+//@TODO: Bootmode
+    async reset(bootMode?: boolean): Promise<void> {
+        await this.signal({ });
+        await stall(100);
+        await this.signal({ dtr: true });
+        await stall(100);
+        await this.signal({ rts: true });
+        await stall(100);
+        await this.signal({ rts: true });
+        await stall(100);
+        await this.signal({ });
     }
 
     async #getFd(): Promise<number> {
@@ -50,9 +64,12 @@ export class SerialPort extends _SerialPort {
             }
         }
 
-        return concat(chunks);
+        const result = concat(chunks);
+        //console.log({ result });
+        return result;
     }
 
+    /*
     async getSignal(): Promise<{ dtr: boolean, rts: boolean }> {
         const fd = await this.#getFd();
 
@@ -63,6 +80,7 @@ export class SerialPort extends _SerialPort {
             rts: !!(result[0] & TIOCM_RTS),
         };
     }
+    */
 
     async signal(signal: { dtr?: boolean, rts?: boolean }): Promise<void> {
         const fd = await this.#getFd();
@@ -85,7 +103,6 @@ export class SerialPort extends _SerialPort {
                     console.log("ERROR READ", e);
                     throw e;
                 }
-                console.log("FAILED WRITE; EAGAIN");
                 if (failCount++ > 5) { throw e; }
             }
             await stall(3);

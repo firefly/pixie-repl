@@ -1,10 +1,13 @@
 
-export abstract class SerialPort {
-    abstract connect(): Promise<void>;
+export interface SerialPort {
+    readonly name: string;
 
-    abstract read(): Promise<Uint8Array>;
-    abstract write(data: Uint8Array): Promise<boolean>;
+    connect(): Promise<void>;
+    reset(bootMode?: boolean): Promise<void>;
 
-    abstract signal(signal: { dtr?: boolean, rts?: boolean }): Promise<void>;
-    abstract getSignal(): Promise<{ dtr: boolean, rts: boolean }>;
+    read(): Promise<Uint8Array>;
+    write(data: Uint8Array): Promise<boolean>;
+
+    //signal(signal: { dtr?: boolean, rts?: boolean }): Promise<void>;
+    //getSignal(): Promise<{ dtr: boolean, rts: boolean }>;
 }
