@@ -24,21 +24,27 @@ export class SerialPort implements _SerialPort {
     get name(): string { return this.filename; }
 
     async connect(): Promise<void> {
-        if (this.#fd != null) { throw new Error("already connected"); }
+        if (this.#fd != null) { return; }
         this.#fd = fs.openSync(this.filename, fs.constants.O_RDWR | fs.constants.O_NONBLOCK);
         await stall(5);
     }
-//@TODO: Bootmode
+
     async reset(bootMode?: boolean): Promise<void> {
-        await this.signal({ });
-        await stall(100);
-        await this.signal({ dtr: true });
-        await stall(100);
-        await this.signal({ rts: true });
-        await stall(100);
-        await this.signal({ rts: true });
-        await stall(100);
-        await this.signal({ });
+        if (bootMode) {
+            await this.signal({ });
+            await stall(100);
+            await this.signal({ dtr: true });
+            await stall(100);
+            await this.signal({ rts: true });
+            await stall(100);
+            await this.signal({ rts: true });
+            await stall(100);
+            await this.signal({ });
+        } else {
+            await this.signal({ rts: true });
+            await stall(100);
+            await this.signal({ });
+        }
     }
 
     async #getFd(): Promise<number> {
