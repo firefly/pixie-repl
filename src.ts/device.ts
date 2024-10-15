@@ -17,7 +17,7 @@ import {
     CMD_FLASH_BEGIN, CMD_FLASH_DATA, CMD_FLASH_END,
     CMD_FLASH_DEFL_BEGIN, CMD_FLASH_DEFL_DATA, CMD_FLASH_DEFL_END,
     CMD_MEM_BEGIN, CMD_MEM_DATA, CMD_MEM_END, CMD_READ_REG,
-    CMD_READ_FLASH, CMD_SYNC,
+    CMD_READ_FLASH, CMD_SYNC, CMD_ERASE_REGION,
     computeChecksum, getErrorMessage, syncPacket
 } from "./protocol.js";
 import { Md5 } from "./utils/md5.js";
@@ -478,6 +478,17 @@ export abstract class Device {
         if (progress) { progress(100); }
 
         return concat(blocks);
+    }
+
+    async eraseFlash(offset: number, length: number): Promise<void> {
+        const version = await this._enableStub();
+        assert(version === "0.1.0", `unknown Stub version`, { version });
+
+        await this._command(CMD_ERASE_REGION, concat([
+            toLeBytes(offset, 4),
+            toLeBytes(length, 4)
+        ]));
+
     }
 
     async writeFlashCompressed(offset: number, data: Uint8Array, progress?: ProgressFunc): Promise<string> {
