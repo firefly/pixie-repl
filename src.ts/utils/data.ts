@@ -47,6 +47,18 @@ export function hexlify(value: bigint | number | Uint8Array, width?: boolean | n
     return result;
 }
 
+export function getBytes(hex: string): Uint8Array {
+    if (hex.length % 2) { throw new Error(`bad length`); }
+    if (hex.startsWith("0x")) { hex = hex.substring(2); }
+
+    const bytes: Array<number> = [ ];
+    for (let i = 0; i < hex.length; i += 2) {
+        bytes.push(parseInt(hex.substring(i, i + 2), 16));
+    }
+
+    return new Uint8Array(bytes);
+}
+
 /**
  *  Convert %%bytes%% from a Little-Endian representation to a
  *  number.
