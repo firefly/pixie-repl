@@ -9,11 +9,14 @@
   "dependencies": {
     "ethers": "^6.12.1",
     "ioctl": "^2.0.2",
-    "pako": "^2.1.0"
+    "pako": "^2.1.0",
+    "read": "^4.0.0"
   },
   "description": "Communication library for Firefly Hardware Wallet.",
   "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
     "@types/node": "^20.11.25",
+    "@types/pako": "^2.0.3",
     "@types/semver": "^7.5.8",
     "rollup": "^4.12.1",
     "semver": "^7.6.0",
@@ -52,14 +55,13 @@
     "url": "git+ssh://git@github.com/firefly/connector.git"
   },
   "scripts": {
-    "_build-dist": "rollup -c && uglifyjs ./dist/firefly.js -o ./dist/firefly.min.js -m",
-    "_dist-stats": "gzip -k9f -S '.gz' ./dist/firefly.min.js && du -hs ./dist/*.gz && echo '' && du -hs ./dist/*.js",
+    "_build-dist": "rollup -c && uglifyjs ./web/dist/pixie-repl.js -o ./web/dist/pixie-repl.min.js -m",
     "auto-build": "npm run build -- -w",
     "build": "tsc --build ./tsconfig.esm.json",
     "build-all": "npm run build && npm run build-commonjs",
-    "build-clean": "npm run clean && npm run build && npm run update-version && npm run build-all && npm run _build-dist && npm run _dist-stats",
+    "build-clean": "npm run clean && npm run build && npm run update-version && npm run build-all && npm run _build-dist",
     "build-commonjs": "tsc --build ./tsconfig.commonjs.json",
-    "build-dist": "npm run build && npm run _build-dist && npm run _dist-stats",
+    "build-dist": "npm run build && npm run _build-dist",
     "clean": "rm -rf lib.commonjs lib.esm && cp -r misc/basedirs/* .",
     "test": "echo \"Error: no test specified\" && exit 1",
     "update-version": "node lib.esm/_admin/update-version"
