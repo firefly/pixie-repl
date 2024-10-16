@@ -1,0 +1,19 @@
+
+Provision => Device: ">start=stirData"
+Device => Provision: "<generating"
+
+Device: generate marker
+Device: generate RSA keypair
+Device: generate secretKey
+Device: generate IV
+Device: compute cipherdata
+
+Device => Provision: "<" marker + pubkey + cipherdata
+
+Provision => Device: ">" serial + model + attest
+
+Device: write attest
+Device: burn version + serial + model + marker
+Device: burn secretKey
+
+Device => Provsiion: "<done"
