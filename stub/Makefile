@@ -79,6 +79,7 @@ $(STUB_ELF_32C3): $(SRCS) $(BUILD_DIR) ld/stub_32c3.ld
 $(STUB_JSON): $(STUB_ELF_32C3) wrap_stub.py
 	@echo "  WRAP $^ -> $@"
 	$(Q) $(WRAP_STUB) --out-file $@ $(filter %.elf,$^)
+	$(Q) cat ./prefix-ts.txt $@ > ../src.ts/stubs/esp32-c3.ts
 
 clean:
 	$(Q) rm -rf $(BUILD_DIR)
