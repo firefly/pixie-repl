@@ -61,7 +61,11 @@ typedef enum {
   ESP_FFX_BURN_EFUSE   = 0x82,
   ESP_FFX_BURN_KEY     = 0x83,
 
+  // Returns the SHA2-256 for the range
   ESP_FFX_VERIFY       = 0x84,
+
+  // Returns a bitmap of the flash
+  ESP_FFX_READ_RLE     = 0x85,
 
   ESP_FFX_STIR_ENTROPY = 0x86,
   ESP_FFX_GENKEY       = 0x87,

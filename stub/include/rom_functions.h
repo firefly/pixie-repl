@@ -356,6 +356,92 @@ ets_ds_result_t ets_ds_encrypt_params(ets_ds_data_t *data, const void *iv,
 
 
 //////////
+// eFuse
+
+int ets_efuse_set_timing(uint32_t clock);
+
+typedef enum {
+    ETS_EFUSE_KEY_PURPOSE_USER = 0,
+    ETS_EFUSE_KEY_PURPOSE_RESERVED = 1,
+    ETS_EFUSE_KEY_PURPOSE_XTS_AES_128_KEY = 4,
+    ETS_EFUSE_KEY_PURPOSE_HMAC_DOWN_ALL = 5,
+    ETS_EFUSE_KEY_PURPOSE_HMAC_DOWN_JTAG = 6,
+    ETS_EFUSE_KEY_PURPOSE_HMAC_DOWN_DIGITAL_SIGNATURE = 7,
+    ETS_EFUSE_KEY_PURPOSE_HMAC_UP = 8,
+    ETS_EFUSE_KEY_PURPOSE_SECURE_BOOT_DIGEST0 = 9,
+    ETS_EFUSE_KEY_PURPOSE_SECURE_BOOT_DIGEST1 = 10,
+    ETS_EFUSE_KEY_PURPOSE_SECURE_BOOT_DIGEST2 = 11,
+    ETS_EFUSE_KEY_PURPOSE_MAX,
+} ets_efuse_purpose_t;
+
+typedef enum {
+    ETS_EFUSE_BLOCK0 = 0,
+    ETS_EFUSE_MAC_SPI_SYS_0 = 1,
+    ETS_EFUSE_BLOCK_SYS_DATA = 2,
+    ETS_EFUSE_BLOCK_USR_DATA = 3,
+    ETS_EFUSE_BLOCK_KEY0 = 4,
+    ETS_EFUSE_BLOCK_KEY1 = 5,
+    ETS_EFUSE_BLOCK_KEY2 = 6,
+    ETS_EFUSE_BLOCK_KEY3 = 7,
+    ETS_EFUSE_BLOCK_KEY4 = 8,
+    ETS_EFUSE_BLOCK_KEY5 = 9,
+    ETS_EFUSE_BLOCK_KEY6 = 10,
+    ETS_EFUSE_BLOCK_MAX,
+} ets_efuse_block_t;
+
+/**
+ * @brief Enable efuse subsystem. Called after reset. Doesn't need to be called again.
+ */
+void ets_efuse_start(void);
+
+/**
+  * @brief  Efuse read operation: copies data from physical efuses to efuse read registers.
+  *
+  * @param  null
+  *
+  * @return : 0 if success, others if apb clock is not accepted
+  */
+int ets_efuse_read(void);
+
+/**
+  * @brief  Efuse write operation: Copies data from efuse write registers to efuse. Operates on a single block of efuses at a time.
+  *
+  * @note This function does not update read efuses, call ets_efuse_read() once all programming is complete.
+  *
+  * @return : 0 if success, others if apb clock is not accepted
+  */
+int ets_efuse_program(ets_efuse_block_t block);
+
+/**
+ * @brief Set all Efuse program registers to zero.
+ *
+ * Call this before writing new data to the program registers.
+ */
+void ets_efuse_clear_program_registers(void);
+
+/**
+ * @brief Program a block of key data to an efuse block
+ *
+ * @param key_block Block to read purpose for. Must be in range ETS_EFUSE_BLOCK_KEY0 to ETS_EFUSE_BLOCK_KEY6. Key block must be unused (@ref ets_efuse_key_block_unused).
+ * @param purpose Purpose to set for this key. Purpose must be already unset.
+ * @param data Pointer to data to write.
+ * @param data_len Length of data to write.
+ *
+ * @note This function also calls ets_efuse_program() for the specified block, and for block 0 (setting the purpose)
+ */
+int ets_efuse_write_key(ets_efuse_block_t key_block, ets_efuse_purpose_t purpose, const void *data, size_t data_len);
+
+/**
+ * @brief Calculate Reed-Solomon Encoding values for a block of efuse data.
+ *
+ * @param data Pointer to data buffer (length 32 bytes)
+ * @param rs_values Pointer to write encoded data to (length 12 bytes)
+ */
+void ets_efuse_rs_calculate(const void *data, void *rs_values);
+
+
+
+//////////
 // Standard Lib
 
 //void *memcpy(void *restrict dst, const void *restrict src, size_t n);

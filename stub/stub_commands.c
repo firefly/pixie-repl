@@ -76,6 +76,8 @@ typedef struct KeyPair {
     uint8_t key[32];
 
     uint8_t cipherdata[sizeof(ets_ds_data_t)];
+
+    uint8_t marker[4];
 } KeyPair;
 
 KeyPair keypair = { 0 };
@@ -161,6 +163,8 @@ void dumpData(const char* header, uint8_t *data, size_t length) {
 
 static int genkey() {
     int ret = 0;
+
+    esp_fill_random(keypair.marker, 4);
 
     // Generate a new random eFuse key
     esp_fill_random(keypair.key, 32);
@@ -269,6 +273,14 @@ static int genkey() {
         SLIP_send_frame_data_buf((uint8_t*)&keypair.cipherdata, length);
     }
 
+    {
+        size_t length = 4;
+        SLIP_send_frame_data('M');
+        SLIP_send_frame_data((length >> 8) & 0xff);
+        SLIP_send_frame_data(length & 0xff);
+        SLIP_send_frame_data_buf((uint8_t*)&keypair.marker, length);
+    }
+
     //dumpData("pubkey.N", pubkeyN, sizeof(pubkeyN));
 
     //dumpData("CIPHER", (uint8_t*)&keypair.cipherdata,
@@ -309,6 +321,133 @@ esp_command_error handle_ffx_verify(uint32_t offset, uint32_t length) {
     return ESP_OK;
 }
 
+static void _sendRle(size_t length, uint8_t c) {
+    uint8_t data[4];
+    data[0] = 1;
+    data[1] = c;
+    data[2] = length & 0xff;
+    data[3] = (length >> 8) & 0xff;
+    SLIP_send(data, 4);
+}
+
+esp_command_error handle_ffx_read_rle(uint32_t offset, uint32_t length) {
+    ets_sha_enable();
+
+    SHA_CTX ctx;
+    ets_sha_init(&ctx, SHA2_256);
+
+    uint32_t rleLength = 0;
+    int32_t rleByte = -1;
+
+    uint8_t data[FLASH_SECTOR_SIZE + 4];
+
+    for (uint32_t i = 0; i < length; i += FLASH_SECTOR_SIZE) {
+        uint8_t res = SPIRead(offset + i, (uint32_t*)&data[4], FLASH_SECTOR_SIZE);
+        if (res != 0) { break; }
+
+        size_t l = FLASH_SECTOR_SIZE;
+        if (length - i < l) { l = length - i; }
+
+        data[0] = 0;
+        data[1] = 0;
+        data[2] = 0;
+        data[3] = 0;
+
+        int32_t v = data[4];
+        for (size_t i = 1; i < l; i++) {
+            if (v != data[i + 4]) {
+                v = -1;
+                break;
+            }
+        }
+
+        if (v >= 0) {
+            if (v != rleByte) {
+                if (rleLength > 0) {
+                    _sendRle(rleLength, rleByte);
+                    rleLength = 0;
+                }
+                rleByte = v;
+            }
+
+            rleLength += l;
+
+            if (rleLength > 0xffff) {
+                _sendRle(0xffff, rleByte);
+                rleLength -= 0xffff;
+            }
+        } else {
+            if (rleLength > 0) {
+                _sendRle(rleLength, rleByte);
+
+                rleByte = -1;
+                rleLength = 0;
+            }
+
+            SLIP_send(data, 4 + l);
+        }
+
+        ets_sha_update(&ctx, &data[4], l, false);
+    }
+
+    if (rleLength > 0) {
+        _sendRle(rleLength, rleByte);
+    }
+
+    data[0] = 2;
+    data[1] = 0;
+    data[2] = 32;
+    data[3] = 0;
+
+    ets_sha_finish(&ctx, &data[4]);
+
+    ets_sha_disable();
+
+    SLIP_send(data, 32 + 4);
+
+    return ESP_OK;
+}
+/*
+esp_command_error handle_ffx_bitmap(uint32_t reserved0, uint32_t reserved1) {
+    //size_t offset = 0;
+    //size_t length = 0x01000000;
+
+    uint8_t bitmap[1024] = { 0 };
+    uint32_t bi = 0;
+
+    uint32_t blockCount = 4096;
+    uint32_t blockSize = (1 << 24) / blockCount;
+
+    uint32_t data[blockSize / 4];
+    for (size_t i = 0; i < blockCount; i++) {
+        uint8_t res = SPIRead(i * blockSize, data, blockSize);
+        if (res) { break; }
+
+        uint32_t status = 0x03;
+        for (size_t j = 0; j < blockSize / 4 && status; j++) {
+            switch (data[j]) {
+                case 0:
+                    status &= ~0x01;
+                    break;
+                case 0xffffffff:
+                    status &= ~0x02;
+                    break;
+                default:
+                    status = 0;
+                    break;
+            }
+        }
+
+        status <<= 6 - ((bi & 0x03) << 1);
+        bitmap[bi >> 2] |= status;
+        bi++;
+    }
+
+    SLIP_send_frame_data_buf(bitmap, sizeof(bitmap));
+
+    return ESP_OK;
+}
+*/
 esp_command_error handle_ffx_stir(uint8_t* data, size_t length) {
     stir(data, length);
     return ESP_OK;
@@ -323,6 +462,34 @@ esp_command_error handle_ffx_genkey(uint32_t *status) {
     return ret ? FFX_FAILED_KEYGEN : ESP_OK;
 }
 
+
+esp_err_t esp_efuse_batch_write_begin() {
+    esp_efuse_utility_clear_program_registers();
+}
+
+esp_err_t esp_efuse_batch_write_commit() {
+}
+
+esp_err_t burn_efuse(uint32_t block, uint32_t *data) {
+    esp_efuse_batch_write_begin();
+    for (int i = 0; i < 8; i++) {
+        esp_efuse_write_reg(block, i, data[i])
+    }
+    esp_efuse_batch_write_commit();
+    return ESP_OK;
+}
+
+// block = EFUSE_BLK3
+esp_command_error handle_ffx_burn_efuse(uint32_t block, uint32_t *data) {
+    return burn_efuse(block, data);
+}
+
+#define ATTEST_KEY_BLOCK   (1)
+esp_command_error handle_ffx_burn_key() {
+    //esp_efuse_write_key(ATTEST_KEY_BLOCK,
+    //  ESP_EFUSE_KEY_PURPOSE_HMAC_DOWN_DIGITAL_SIGNATURE, keypair.key, 32);
+    return ESP_OK;
+}
 
 #if defined(ESP32S3)
 esp_rom_spiflash_result_t SPIRead4B(int spi_num, SpiFlashRdMode mode, uint32_t flash_addr, uint8_t* buf, int len)
@@ -441,7 +608,24 @@ void handle_flash_read(uint32_t addr, uint32_t len, uint32_t block_size,
       if (res != 0) {
         break;
       }
-      SLIP_send(buf, n);
+
+      //uint32_t *buf32 = (uint32_t*)buf;
+
+      int same = buf[0];
+      for (size_t i = 1; i < sizeof(buf); i++) {
+          if (buf[i] != same) {
+              same = -1;
+              break;
+          }
+      }
+
+      if (same >= 0) {
+          uint8_t pkt[] = { (n >> 8), (n & 0xff), same };
+          SLIP_send(pkt, sizeof(pkt));
+      } else {
+          SLIP_send(buf, n);
+      }
+
       MD5Update(&ctx, buf, n);
       addr += n;
       num_sent += n;

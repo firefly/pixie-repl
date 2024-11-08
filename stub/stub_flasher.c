@@ -296,6 +296,18 @@ void cmd_loop() {
     case ESP_MEM_END:
         error = verify_data_len(command, 8) || handle_mem_finish();
         break;
+    case ESP_FFX_BURN_EFUSE:
+        error = verify_data_len(command, 4 + 32);
+        if (error == 0) {
+            error = handle_ffx_burn_efuse(data_words[0], &data_words[1]);
+        }
+        break;
+    case ESP_FFX_BURN_KEY:
+        error = verify_data_len(command, 0);
+        if (error == 0) {
+            error = handle_ffx_burn_key();
+        }
+        break;
     case ESP_FFX_VERSION:
         error = ESP_OK;
         break;
@@ -304,6 +316,9 @@ void cmd_loop() {
         break;
     case ESP_FFX_VERIFY:
         error = verify_data_len(command, 8) || handle_ffx_verify(data_words[0], data_words[1]);
+        break;
+    case ESP_FFX_READ_RLE:
+        error = verify_data_len(command, 8);
         break;
     case ESP_FFX_GENKEY:
         error = verify_data_len(command, 0) || handle_ffx_genkey(&status);
@@ -368,6 +383,10 @@ void cmd_loop() {
               */
               entrypoint_fn();
           }
+          break;
+      case ESP_FFX_READ_RLE:
+          /* args are: offset, length */
+          handle_ffx_read_rle(data_words[0], data_words[1]);
           break;
       }
     }
@@ -440,6 +459,7 @@ void stub_main()
     // clk_ll_cpu_set_divider(1);
     uint32_t divider = 1;
     REG_SET_FIELD(SYSTEM_SYSCLK_CONF_REG, SYSTEM_PRE_DIV_CNT, divider - 1);
+    //REG_SET_FIELD(SYSTEM_SYSCLK_CONF_REG, SYSTEM_PRE_DIV_CNT, 1);
 
     // clk_ll_cpu_set_src(SOC_CPU_CLK_SRC_PLL);
     REG_SET_FIELD(SYSTEM_SYSCLK_CONF_REG, SYSTEM_SOC_CLK_SEL, 1);
@@ -453,6 +473,7 @@ void stub_main()
     ets_update_cpu_frequency(cpu_freq_mhz);
   }
 
+  ets_efuse_start();
 
   const uint32_t greeting = 0x4941484f; /* OHAI */
 
