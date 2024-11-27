@@ -1,11 +1,14 @@
 import { randomBytes } from "crypto";
 
+import { verify } from "../attest.js";
+
 import { getBytes, hexlify } from "../utils/data.js";
 import { assert } from "../utils/errors.js";
 import { toUtf8Bytes, toUtf8String } from "../utils/strings.js";
 import { stall } from "../utils/timer.js";
 
 import type { Device } from "../device.js";
+import type { AttestedDeviceInfo } from "../attest.js";
 
 export interface ProvisionData {
     attest: Uint8Array;
@@ -145,6 +148,35 @@ export class REPL {
             data = data.slice(128);
         }
         return true;
+    }
+
+    async attest(): Promise<AttestedDeviceInfo> {
+        await this.waitReady();
+
+        await this._sendCommand("LOAD-NVS");
+        await this._sendCommand("LOAD-EFUSE");
+
+        const challenge = randomBytes(32);
+        const result = await this._sendCommand("ATTEST", challenge);
+
+        const check = verify(result.attest);
+        assert(("0x" + hexlify(challenge)) === check.challenge, `challenge mismatch`, {
+            expected: hexlify(challenge), got: check.challenge
+        });
+        return check;
+    }
+
+    async reset(): Promise<void> {
+        await this.waitReady();
+
+        await this._sendCommand("RESET");
+        await stall(2000);
+    }
+
+    async dump(): Promise<any> {
+        await this.waitReady();
+
+        return await this._sendCommand("DUMP");
     }
 
     async generateKey(): Promise<GenerateKeyResult> {
