@@ -95,7 +95,7 @@ int getHmacKey(int slot) {
     return -1;
 }
 */
-#define KEY_SIZE   (ESP_DS_SIGNATURE_MAX_BIT_LEN)
+//#define KEY_SIZE   (ESP_DS_SIGNATURE_MAX_BIT_LEN)
 
 
 #define EXPONENT 65537

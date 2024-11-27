@@ -21,6 +21,7 @@
 #define ATTEST_KEY_BLOCK    (EFUSE_BLK_KEY2)
 #define ATTEST_HMAC_KEY     (HMAC_KEY2)
 
+
 // Device Info
 // - reg0 (0x 01 00 00 ZZ)
 //   - Versin 1
@@ -207,7 +208,7 @@ void scene_init() {
         ffx_scene_appendChild(root, lines[i]);
         FfxPoint *point = ffx_scene_nodePosition(lines[i]);
         point->x = 10;
-        point->y = 110 + i * 26;
+        point->y = 106 + i * 27;
     }
 }
 
@@ -294,7 +295,17 @@ void scene_checkAttest() {
 void scene_checkEfuse() {
     char text[20];
 
-    uint32_t model = esp_efuse_read_reg(EFUSE_BLK3, 1);
+    uint32_t version = esp_efuse_read_reg(DEVICE_INFO_BLOCK, 0);
+    uint32_t model = esp_efuse_read_reg(DEVICE_INFO_BLOCK, 1);
+    uint32_t serial = esp_efuse_read_reg(DEVICE_INFO_BLOCK, 2);
+
+    if (version == 0 && model == 0 && serial == 0) {
+        scene_addText("Tabula rasa!");
+    } else if (version > 1) {
+        snprintf(text, sizeof(text), "Version: %ld", version);
+        scene_addText(text);
+    }
+
     if ((model >> 8) == 1) {
         snprintf(text, sizeof(text), "Pixie (rev.%ld)", model & 0xff);
         scene_addText(text);
@@ -302,24 +313,29 @@ void scene_checkEfuse() {
         scene_addText("Unknown Model");
     }
 
-    uint32_t version = esp_efuse_read_reg(EFUSE_BLK3, 0);
-    if (version > 1) {
-        snprintf(text, sizeof(text), "Version: %ld", version);
-        scene_addText(text);
-    }
-
     if (model != 0) {
         snprintf(text, sizeof(text), "Model: 0x%lx", model);
         scene_addText(text);
     }
 
-    uint32_t serial = esp_efuse_read_reg(EFUSE_BLK3, 2);
     if (serial) {
-       snprintf(text, sizeof(text), "S/N: %ld", serial);
-       scene_addText(text);
+        snprintf(text, sizeof(text), "S/N: %ld", serial);
+        scene_addText(text);
     }
 
     if (version) {
+        bool unused = esp_efuse_key_block_unused(ATTEST_KEY_BLOCK);
+        bool readProtect = esp_efuse_get_key_dis_read(ATTEST_KEY_BLOCK);
+        bool writeProtect = esp_efuse_get_key_dis_write(ATTEST_KEY_BLOCK);
+
+        if (unused) {
+            scene_addText("KEY: null");
+        } else {
+            snprintf(text, sizeof(text), "KEY: %sr %sw",
+              readProtect ? "-": "+", writeProtect ? "-": "+");
+            scene_addText(text);
+        }
+
         scene_checkAttest();
     }
 }
@@ -448,8 +464,8 @@ void app_main() {
             if (startsWith(buffer, "ATTEST=", i)) {
                 bool error = false;
 
-                if (length != 16) {
-                    printf("! ATTEST bad parameter length (%d != 16)\n", length);
+                if (length != 64) {
+                    printf("! ATTEST bad parameter length (%d != 64)\n", length);
                     error = true;
                 }
 
@@ -491,7 +507,7 @@ void app_main() {
 
                 uint8_t attestation[
                     1 +               // version
-                    7 +               // random nonce
+                    16 +              // random nonce
                     (length / 2) +    // provided timestamp
                     4 + 4 +           // model nunmber + serial number
                     nLen +            // pubkey.N
@@ -504,8 +520,8 @@ void app_main() {
 
                 attestation[offset++] = 0x01;
 
-                esp_fill_random(&attestation[offset], 7);
-                offset += 7;
+                esp_fill_random(&attestation[offset], 16);
+                offset += 16;
 
                 ret = readBuffer(&attestation[offset], &buffer[start], length);
                 if (ret < 0) { panic("! ATTEST invalid data", ret); }
@@ -529,16 +545,19 @@ void app_main() {
                 memcpy(&attestation[offset], attest, 64);
                 offset += 64;
 
+                uint8_t hash[nLen];
+                memset(hash, 0, nLen);
+
                 Sha256Context ctx;
                 sha2_initSha256(&ctx);
                 sha2_updateSha256(&ctx, attestation, offset);
-                sha2_finalSha256(&ctx, &attestation[offset]);
-                reverseBytes(&attestation[offset], 32);
+                sha2_finalSha256(&ctx, &hash[nLen - 32 - 1]);
+                reverseBytes(hash, nLen);
 
                 esp_ds_data_t *encParams = heap_caps_malloc(sizeof(esp_ds_data_t), MALLOC_CAP_DMA);
                 memcpy((uint8_t*)encParams, cipherdata, sizeof(esp_ds_data_t));
 
-                ret = esp_ds_sign(&attestation[offset], encParams,
+                ret = esp_ds_sign(hash, encParams,
                   ATTEST_HMAC_KEY, &attestation[offset]);
                 reverseBytes(&attestation[offset], nLen);
                 dumpBuffer("attest", attestation, sizeof(attestation));
@@ -546,17 +565,17 @@ void app_main() {
                 printf("<OK\n");
 
             } else if (startsWith(buffer, "BURN", i)) {
-                scene_addText("BURN");
+                scene_addText("> BURN");
 
                 ret = esp_efuse_batch_write_begin();
                 if (ret) { panic("failed efuse batch begin", ret); }
-                ret = esp_efuse_write_reg(EFUSE_BLK3, 0, 0x00000001);
+                ret = esp_efuse_write_reg(DEVICE_INFO_BLOCK, 0, 0x00000001);
                 if (ret) { panic("failed efuse write version", ret); }
-                ret = esp_efuse_write_reg(EFUSE_BLK3, 1, modelNumber);
+                ret = esp_efuse_write_reg(DEVICE_INFO_BLOCK, 1, modelNumber);
                 if (ret) { panic("failed efuse write version", ret); }
-                ret = esp_efuse_write_reg(EFUSE_BLK3, 2, serialNumber);
+                ret = esp_efuse_write_reg(DEVICE_INFO_BLOCK, 2, serialNumber);
                 if (ret) { panic("failed efuse write version", ret); }
-                ret = esp_efuse_write_reg(EFUSE_BLK3, 4, randMarker);
+                ret = esp_efuse_write_reg(DEVICE_INFO_BLOCK, 4, randMarker);
                 if (ret) { panic("failed efuse write version", ret); }
                 ret = esp_efuse_batch_write_commit();
                 if (ret) { panic("failed efuse batch commit", ret); }
@@ -618,7 +637,7 @@ void app_main() {
 
             } else if (startsWith(buffer, "GEN-KEY", i)) {
                 uint32_t t0 = ticks();
-                scene_addText("> GEN-KEY");
+                scene_addText("> GEN-KEY...");
                 scene_flush();
 
                 if (hasCipherdata) {
@@ -665,13 +684,13 @@ void app_main() {
                 uint32_t dt = ticks() - t0;
 
                 char tmp[20];
-                snprintf(tmp, sizeof(tmp), "  %ld.%03lds", dt / 1000, dt % 1000);
+                snprintf(tmp, sizeof(tmp), "   %ld.%03lds", dt / 1000, dt % 1000);
                 scene_addText(tmp);
                 scene_flush();
 
             } else if (startsWith(buffer, "LOAD-EFUSE", i)) {
-                modelNumber = esp_efuse_read_reg(EFUSE_BLK3, 1);
-                serialNumber = esp_efuse_read_reg(EFUSE_BLK3, 2);
+                modelNumber = esp_efuse_read_reg(DEVICE_INFO_BLOCK, 1);
+                serialNumber = esp_efuse_read_reg(DEVICE_INFO_BLOCK, 2);
                 printf("<OK\n");
 
             } else if (startsWith(buffer, "LOAD-NVS", i)) {
@@ -809,7 +828,6 @@ void app_main() {
             } else if (startsWith(buffer, "STIR-IV=", i)) {
                 stir(iv, sizeof(iv), (uint8_t*)&buffer[start], length);
                 printf("<OK\n");
-
 
             } else if (startsWith(buffer, "STIR-KEY=", i)) {
                 stir(key, sizeof(key), (uint8_t*)&buffer[start], length);

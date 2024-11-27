@@ -25,10 +25,11 @@ typedef struct KeyPair {
 } KeyPair;
 
 
-void keypair_dumpMpi(char *header, mbedtls_mpi* value);
+void keypair_dumpMpi(char *name, mbedtls_mpi* value);
 int keypair_generate(KeyPair *keypair, uint32_t key_size, uint8_t *entropy, size_t entropyLength);
 int keypair_getParams(KeyPair *keypair, esp_ds_p_data_t *params);
 void keypair_dumpKey(int slot);
+
 
 #ifdef __cplusplus
 }
