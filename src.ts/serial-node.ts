@@ -25,7 +25,15 @@ export class SerialPort implements _SerialPort {
 
     async connect(): Promise<void> {
         if (this.#fd != null) { return; }
-        this.#fd = fs.openSync(this.filename, fs.constants.O_RDWR | fs.constants.O_NONBLOCK);
+        for (let i = 0; i < 5; i++) {
+            try {
+                this.#fd = fs.openSync(this.filename, fs.constants.O_RDWR | fs.constants.O_NONBLOCK);
+            } catch (e: any) {
+                if (i === 4) { throw e; }
+                if (e.code !== "EBUSY") { throw e; }
+                await stall(1000);
+            }
+        }
         await stall(5);
     }
 
@@ -57,7 +65,7 @@ export class SerialPort implements _SerialPort {
 
         const chunks = [ ];
 
-        while (true) {
+        while (chunks.length < 8) {
             try {
                 const buffer = new Uint8Array(1024);
                 const l = fs.readSync(fd, buffer);
