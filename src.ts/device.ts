@@ -18,6 +18,7 @@ import {
     CMD_FLASH_DEFL_BEGIN, CMD_FLASH_DEFL_DATA, CMD_FLASH_DEFL_END,
     CMD_MEM_BEGIN, CMD_MEM_DATA, CMD_MEM_END, CMD_READ_REG,
     CMD_READ_FLASH, CMD_SYNC, CMD_ERASE_REGION,
+//    CMD_CHANGE_BAUDRATE,
     computeChecksum, getErrorMessage, syncPacket
 } from "./protocol.js";
 import { Md5 } from "./utils/md5.js";
@@ -28,7 +29,7 @@ import { concat, fromLeBytes, toLeBytes } from "./utils/data.js";
 import { stall } from "./utils/timer.js";
 
 import type { SerialPort } from "./serial.js";
-import type  { Stub } from "./stubs/stub.js";
+import type { Stub } from "./stubs/stub.js";
 
 export type ProgressFunc = (percent: number) => void;
 
@@ -223,7 +224,18 @@ export abstract class Device {
     }
 
     async _sync(): Promise<any> {
-        return await this._command(CMD_SYNC, syncPacket());
+        let error: null | Error = null;
+        for (let i = 0; i < 5; i++) {
+            try {
+                return await this._command(CMD_SYNC, syncPacket());
+            } catch (e: any) {
+                console.log(error);
+                console.log("retry");
+                error = e;
+            }
+            await stall(10);
+        }
+        if (error) { throw error; }
     }
 
     /**
@@ -270,7 +282,7 @@ export abstract class Device {
 
     async #uploadMemory(offset: number, data: Uint8Array, entryPoint?: number): Promise<void> {
         const blockCount = Math.ceil(data.length / RAM_BLOCK_SIZE);
-
+console.log({ offset, data, entryPoint });
         await this._command(CMD_MEM_BEGIN, concat([
             toLeBytes(data.length, 4),
             toLeBytes(blockCount, 4),
@@ -324,7 +336,13 @@ export abstract class Device {
                 const major = version >> 24;
                 const minor = (version >> 16) & 0xff;
                 const patch = version & 0xffff;
-
+/*
+                const change = await this._command(CMD_CHANGE_BAUDRATE, concat([
+                    toLeBytes(460800, 4),
+                    toLeBytes(115200, 4)
+                ]));
+                console.log({ change });
+*/
                 this.#stub = `${ major }.${ minor }.${ patch }`;
             })();
         }
@@ -332,6 +350,27 @@ export abstract class Device {
         await this.#stubPromise;
 
         return this.#stub;
+    }
+
+    async run(stub: Stub): Promise<void> {
+
+        await this.#uploadMemory(stub.text_start, decodeBase64(stub.text));
+        if (stub.data != null && stub.data_start != null) {
+            await this.#uploadMemory(stub.data_start,
+              decodeBase64(stub.data));
+        }
+
+        const packet = new Uint8Array(8 + 8);
+        packet[0] = 0x00;
+        packet[1] = CMD_MEM_END;
+        packet.set(toLeBytes(8, 2), 2);
+        packet.set(concat([
+            toLeBytes(0, 4), toLeBytes(stub.entry, 4),
+        ]), 8);
+        await stall(2);
+        await this._writeSlipPacket(packet);
+
+        console.log({ a :15 });
     }
 
     async verifyFlash(offset: number, length: number): Promise<string> {
