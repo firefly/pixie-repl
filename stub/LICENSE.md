@@ -25,15 +25,6 @@ Repo: https://github.com/espressif/esptool
 License: (see LICENCE-esptool.md)
 
 
-mbedtls
--------
-
-All the RSA and bignum support is provided by mbedtls.
-
-- Repo: https://github.com/Mbed-TLS/mbedtls
-- License: Apache 2 or GPL 2+ (see LICENSE-mbedtls.md)
-
-
 ESP-IDF
 -------
 

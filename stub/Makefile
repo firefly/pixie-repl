@@ -43,13 +43,7 @@ Q = @
 endif
 
 STUB = stub_flasher
-SRCS = stub_flasher.c slip.c stub_commands.c stub_write_flash.c stub_io.c \
-  mbedtls/rsa.c mbedtls/rsa_alt_helpers.c \
-  mbedtls/bignum.c mbedtls/bignum_alt.c mbedtls/bignum_core.c \
-    mbedtls/esp_bignum.c \
-  mbedtls/mpi_hal.c mbedtls/mpi_periph.c \
-  mbedtls/platform.c mbedtls/platform_util.c mbedtls/memory_buffer_alloc.c \
-    mbedtls/constant_time.c
+SRCS = stub_flasher.c slip.c stub_commands.c stub_write_flash.c stub_io.c
 
 BUILD_DIR = build
 

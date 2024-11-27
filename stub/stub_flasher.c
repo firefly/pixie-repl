@@ -25,8 +25,6 @@
 #include "soc.h"
 #include "soc_support.h"
 
-#include "mbedtls/memory_buffer_alloc.h"
-
 #include "rom_functions.h"
 
 // 0.1.0
@@ -87,11 +85,6 @@ static esp_command_error verify_data_len(esp_command_req_t *command, uint8_t len
 
 void cmd_loop() {
 
-  // Set up memory pool for MBEDTLS library
-  // See: https://github.com/Mbed-TLS/mbedtls-docs/blob/main/kb/how-to/using-static-memory-instead-of-the-heap.md
-  unsigned char memory_buf[64 * 1024];
-  mbedtls_memory_buffer_alloc_init(memory_buf, sizeof(memory_buf));
-
   while(1) {
     /* Wait for a command */
     while(ub.command == NULL) {
@@ -130,16 +123,6 @@ void cmd_loop() {
         break;
     case ESP_FFX_VERIFY:
         resp.len_ret = 32 + 2;
-        break;
-    case ESP_FFX_GENKEY:
-        // 2 bytes stsatus (at the end)
-        resp.len_ret = 2;
-
-        // tag ('C') + length (2 bytes) + ciphertext
-        resp.len_ret += 3 + sizeof(ets_ds_data_t);
-
-        // tag ('P') + length (2 bytes) + pubkeyN
-        resp.len_ret += 3 + (ETS_DS_MAX_BITS / 8);
         break;
     default:
         break;
@@ -296,32 +279,14 @@ void cmd_loop() {
     case ESP_MEM_END:
         error = verify_data_len(command, 8) || handle_mem_finish();
         break;
-    case ESP_FFX_BURN_EFUSE:
-        error = verify_data_len(command, 4 + 32);
-        if (error == 0) {
-            error = handle_ffx_burn_efuse(data_words[0], &data_words[1]);
-        }
-        break;
-    case ESP_FFX_BURN_KEY:
-        error = verify_data_len(command, 0);
-        if (error == 0) {
-            error = handle_ffx_burn_key();
-        }
-        break;
     case ESP_FFX_VERSION:
         error = ESP_OK;
-        break;
-    case ESP_FFX_STIR_ENTROPY:
-        error = verify_data_len(command, 32) || handle_ffx_stir(command->data_buf, 32);
         break;
     case ESP_FFX_VERIFY:
         error = verify_data_len(command, 8) || handle_ffx_verify(data_words[0], data_words[1]);
         break;
     case ESP_FFX_READ_RLE:
         error = verify_data_len(command, 8);
-        break;
-    case ESP_FFX_GENKEY:
-        error = verify_data_len(command, 0) || handle_ffx_genkey(&status);
         break;
     case ESP_RUN_USER_CODE:
         /* Returning from here will run user code, ie standard boot process
@@ -472,8 +437,6 @@ void stub_main()
     //esp_rom_set_cpu_ticks_per_us(cpu_freq_mhz);
     ets_update_cpu_frequency(cpu_freq_mhz);
   }
-
-  ets_efuse_start();
 
   const uint32_t greeting = 0x4941484f; /* OHAI */
 

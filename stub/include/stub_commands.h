@@ -53,8 +53,4 @@ esp_command_error handle_get_security_info(void);
 
 esp_command_error handle_ffx_verify(uint32_t addr, uint32_t len);
 esp_command_error handle_ffx_read_rle(uint32_t offset, uint32_t length);
-esp_command_error handle_ffx_genkey();
 esp_command_error handle_ffx_stir(uint8_t *data, size_t length);
-
-esp_command_error handle_ffx_burn_efuse(uint32_t block, uint32_t *data);
-esp_command_error handle_ffx_burn_key();
