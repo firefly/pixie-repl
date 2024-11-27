@@ -282,7 +282,7 @@ export abstract class Device {
 
     async #uploadMemory(offset: number, data: Uint8Array, entryPoint?: number): Promise<void> {
         const blockCount = Math.ceil(data.length / RAM_BLOCK_SIZE);
-console.log({ offset, data, entryPoint });
+
         await this._command(CMD_MEM_BEGIN, concat([
             toLeBytes(data.length, 4),
             toLeBytes(blockCount, 4),
@@ -369,8 +369,6 @@ console.log({ offset, data, entryPoint });
         ]), 8);
         await stall(2);
         await this._writeSlipPacket(packet);
-
-        console.log({ a :15 });
     }
 
     async verifyFlash(offset: number, length: number): Promise<string> {
