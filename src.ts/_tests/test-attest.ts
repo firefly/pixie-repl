@@ -1,4 +1,6 @@
+
 import { verify } from "../attest.js";
+import { getBytes } from "../utils/data.js";
 
 const test0 = `
     0107b42ae4b418f4a7ab2ecde361e06e3a000102030405060708090a0b0c0d0e
@@ -62,5 +64,5 @@ const test1 = `
     f526f98cc3bd3f4f4cc892bd36880276b7cefcf4a2e81a343b
 `.replace(/\s*/g, '');
 
-console.log(verify(test0));
-console.log(verify(test1));
+console.log(verify(getBytes(test0)));
+console.log(verify(getBytes(test1)));

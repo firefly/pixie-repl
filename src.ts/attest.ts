@@ -3,35 +3,36 @@ import {
     getBytes, hexlify, sha256, toBeArray, verifyMessage, zeroPadValue
 } from "ethers";
 
+import { assert } from "./utils/errors.js";
+
 import type { BaseWallet } from "ethers";
 
+// Official address of the private key used by Firefly to sign devices
 export const IssuerAddress = "0x70CD34d96E58876a25445dd75f54630D99258182";
 
 export interface AttestedDeviceInfo {
     nonce: string;
     challenge: string;
 
-    modelNumber: number;
+    model: number;
     modelName: string;
-    serialNumber: number;
+    serial: number;
 }
 
-export function getModelName(modelNumber: number) {
-    if ((modelNumber >> 8) === 1) {
-        return `Firefly Pixie (rev: ${ modelNumber & 0xff })`;
+export function getModelName(model: number) {
+    if ((model >> 8) === 1) {
+        return `Firefly Pixie (rev: ${ model & 0xff })`;
     }
-    return `[unknown model=0x${ modelNumber.toString(16) }]`;
+    return `[unknown model=0x${ model.toString(16) }]`;
 }
 
-export function compute(signer: BaseWallet, modelNumber: number, serialNumber: number, pubkey: string) {
-    const message = getMessage(modelNumber, serialNumber, pubkey);
+export function compute(signer: BaseWallet, model: number, serial: number, pubkey: string) {
+    const message = getMessage(model, serial, pubkey);
     const attest = signer.signMessageSync(message);
     return Signature.from(attest).compactSerialized;;
 }
 
-export function verify(attest: string): AttestedDeviceInfo {
-    const bytes = getBytes(attest.startsWith("0x") ? attest: ("0x" + attest));
-
+export function verify(bytes: Uint8Array): AttestedDeviceInfo {
     let offset = 0;
     const readBytes = (length: number) => {
         const result = bytes.slice(offset, offset + length);
@@ -44,35 +45,36 @@ export function verify(attest: string): AttestedDeviceInfo {
     if (version !== 1) { throw new Error(`unsupporter attestation version: ${ version }`); }
     const nonce = hexlify(readBytes(16));
     const challenge = hexlify(readBytes(32));
-    const modelNumber = toNumber(readBytes(4));
-    const serialNumber = toNumber(readBytes(4));
+    const model = toNumber(readBytes(4));
+    const serial = toNumber(readBytes(4));
     const pubkeyN = readBytes(384);
     const attestProof = readBytes(64);
     const signature = readBytes(384);
 
     // Determine the model name
-    const modelName = getModelName(modelNumber);
+    const modelName = getModelName(model);
 
     // Check the attestation proof is valid
-    const message = getMessage(modelNumber, serialNumber, hexlify(pubkeyN));
+    const message = getMessage(model, serial, hexlify(pubkeyN));
     const recovered = verifyMessage(message, hexlify(attestProof));
+
     if (IssuerAddress !== recovered) {
         throw new Error(`invalid attestation; address not signing authority (${ recovered } != ${ IssuerAddress })`);
     }
 
     // Compute the message hash
     const check = new Uint8Array(384);
-    check.fill(0x42);
-    check.set(getBytes(sha256(bytes.slice(0, bytes.length - 384))));
+    check.set(getBytes(sha256(bytes.slice(0, bytes.length - 384))), 384 - 33);
 
     // Check the RSA maths are correct
     // See: https://cryptobook.nakov.com/digital-signatures/rsa-sign-verify-examples
     const verify = ((BigInt(hexlify(signature)) ** E) % BigInt(hexlify(pubkeyN)));
-    if (BigInt(hexlify(check)) !== verify) {
-        throw new Error("invalid attestion; signature did not match");
-    }
+    assert(BigInt(hexlify(check)) === verify, `invalid attestation; signature check failed`, {
+        expected: hexlify(check), got: ("0x" + verify.toString(16)),
+        signature: hexlify(signature), pubkey: hexlify(pubkeyN)
+    });
 
-    return { nonce, challenge, modelNumber, serialNumber, modelName };
+    return { nonce, challenge, model, serial, modelName };
 }
 
 
