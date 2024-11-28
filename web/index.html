@@ -1,0 +1,144 @@
+<html>
+  <head>
+    <title>Provision - Firefly Box</title>
+    <meta charset="UTF-8">
+    <style>
+      @import url('./static/josefin-sans/index.css');
+
+      html {
+        background: #222;
+        dddcolor: #aaa;
+        font-size: 20px;
+        font-family: sans-serif;
+      }
+
+      #templates {
+        display: none;
+      }
+
+      .actions a {
+        padding-right: 10px;
+      }
+
+      .device-info {
+        font-family: monospace;
+        font-size: 18px;
+        margin: 30px 0;
+      }
+
+      .device-info th {
+        text-align: left;
+        padding: 5px 20px 5px 0;
+      }
+
+      .ptable {
+        border-collapse: collapse;
+        border: 2px solid #aaa;
+        font-family: monospace;
+        font-size: 18px;
+        margin: 30px 0;
+        width: 100%;
+      }
+
+      .special-row .name {
+        font-style: italic;
+      }
+
+      .ptable th {
+        border: 2px solid #aaa;
+        padding: 5px 20px;
+      }
+
+      .ptable td {
+        border: 2px solid #aaa;
+        padding: 5px 20px;
+      }
+
+    </style>
+    <link rel="stylesheet" href="./static/style.css">
+  </head>
+  <body>
+    <div id="box-connect" class="box-connect">
+      <div class="spinner"></div>
+      <a id="connect" class="button connect hoverable">connect</a>
+      <div id="connect-status" class="status">Connect to a Firefly over USB.</div>
+    </div>
+
+    <div id="content"></div>
+
+    <div id="templates">
+      <div id="template-header"><span class="name"></span></div>
+
+      <table id="template-device-info">
+        <tr><th>Device Model:</th><td class="modelName"></td></tr>
+        <tr><th>Chip:</th><td class="chip"></td></tr>
+        <tr><th>Serial Number:</th><td class="serialNumber"></td></tr>
+      </table>
+
+      <table id="template-ptable" class="ptable">
+        <tr>
+          <th>Location</th>
+          <th>Size</th>
+          <th>Name</th>
+           <th>Type</th>
+          <th>Download</th>
+        </tr>
+      </table>
+
+      <table>
+        <tr id="template-ptable-row">
+          <td class="range"></td>
+          <td class="size"></td>
+          <td class="name"></td>
+          <td class="type"></td>
+          <td class="actions"></td>
+        </tr>
+        <tr id="template-ptable-special-row" class="special-row">
+          <td class="range"></td>
+          <td class="size"></td>
+          <td class="name" colspan="2"></td>
+          <td class="actions"></td>
+        </tr>
+      </table>
+
+      <div id="template-upload" class="upload">
+        <p>
+          To update the device firmwware, select any option below or
+          generate your own using the
+          <a class="link" href="https://github.com/firefly/pixie-firmware">Pixie Firmware</a>
+          as a starting point.
+        </p>
+        <p>
+          It is highly recommended to back up the <b>attest partition</b>,
+          as it contains the public components of your attestation key, which
+          cannot be restored if lost.
+        </p>
+        <div class="firmware">
+          <div class="title">ETHCC 2024 Factory</div>
+          <span class="info">
+            This is the original firmware distributed on devices during
+            ETHCC 2024. Basic menu support, alpha-blending, device info
+            and a simple game, <i>"Le Space"</i>.
+          </span>
+          <div class="flash mutex" data-name="ethcc">Flash<div class="progress hidden"></div></div>
+        </div>
+        <div class="firmware">
+          <div class="title">Device Status</div>
+          <span class="info">
+            A very basic tool to display device info and validate
+            attestation is functioning correctly.
+          </span>
+          <div class="flash mutex" data-name="probe">Flash<div class="progress hidden"></div></div>
+        </div>
+        <div class="firmware">
+          <div class="title">R-Roll Demo v0.1</div>
+          <span class="info">
+            Exactly what you would expect from the title.
+          </span>
+          <div class="flash mutex" data-name="rroll">Flash<div class="progress hidden"></div></div>
+        </div>
+      </div>
+    </div>
+  </body>
+  <script type="module" src="./static/provision.js"></script>
+</html>

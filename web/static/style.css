@@ -1,0 +1,182 @@
+html {
+  background: #340034;
+  color: #a58e71;
+}
+
+div {
+    box-sizing: border-box;
+}
+
+#content {
+  margin-left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+}
+
+.actions a {
+  cursor: pointer;
+}
+
+a.link {
+  color: #ff8c00;
+  cursor: pointer;
+}
+
+a.link:hover {
+  color: #ffe7c8;
+}
+
+.button {
+  border: 3px solid #ff8c00;
+  border-radius: 20px;
+  box-sizing: border-box;
+  color: #ff8c00;
+  display: inline-block;
+  font-weight: bold;
+  height: 60px;
+  line-height: 54px;
+  top: 20px;
+  position: relative;
+  text-align: center;
+  width: 100%;
+}
+
+.button.hoverable:hover {
+  background: #ff8c00;
+  border: 3px solid #814700;
+  color: #9a009a;
+}
+
+.box-connect {
+  height: 100px;
+  margin-left: 50%;
+  margin-top: 200px;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.5s linear;
+  width: 300px;
+}
+
+.box-connect.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.box-connect .button.connect {
+  transition: transform 0.2s ease-out, border-color 0.1s linear;
+}
+
+.box-connect.connecting .button.connect {
+  border-color: transparent;
+  background-color: transparent;
+  font-style: italic;
+  pointer-events: none;
+  transform: translateY(50px);
+  transition: transform 0.5s ease-out, border-color 0.1s linear;
+}
+
+.box-connect .spinner {
+  background: url(./spinner.gif) center;
+  background-size: cover;
+  height: 100px;
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  transition: opacity 0.1s linear;
+  width: 100px;
+}
+
+.box-connect.connecting .spinner {
+  opacity: 1;
+  transition: opacity 0.8s linear;
+}
+
+.box-connect .status {
+  bottom: -50px;
+  color: #ccc;
+  font-size: 16px;
+  left: 50%;
+  position: absolute;
+  text-align: center;
+  transition: transform 0.2s ease-out;
+  transform: translate(-50%, 0);
+  white-space: nowrap;
+}
+
+.box-connect.connecting .status {
+  transform: translate(-50%, 30px);
+  transition: transform 0.5s ease-out;
+}
+
+.upload {
+  line-height: 28px;
+}
+
+.upload .firmware {
+  border: 2px solid #eee;
+  margin: 40px 0;
+  padding: 20px 170px 20px 30px;
+  position: relative;
+}
+
+.upload .firmware .title {
+  color: #eee;
+  font-weight: bold;
+}
+
+.upload .firmware .flash {
+  border: 2px solid #ff8c00;
+  border-radius: 20px;
+  color: #ff8c00;
+  cursor: pointer;
+  font-weight: bold;
+  height: 50px;
+  line-height: 46px;
+  position: absolute;
+  right: 30px;
+  top: 50%;
+  text-align: center;
+  transform: translateY(-50%);
+  width: 100px;
+}
+
+.upload .firmware .flash:hover {
+  background: #ff8c00;
+  color: #340034;
+}
+
+.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.flash .progress {
+  bottom: -15px;
+  border-left: 0px solid #ff8c00;
+  border-right: 82px solid #9d549d;
+  height: 4px;
+  left: 10px;
+  position: absolute;
+  transition: opacity 0.3s linear;
+  width: 82px;
+}
+
+.flash .progress.hidden {
+  opacity: 0;
+}
+
+.header:first-child {
+  border-top: none;
+  dddmargin-top: 0px;
+}
+
+.header {
+  border-top: 2px solid #a58e71;
+  font-size: 35px;
+  color: #ffe7c8;
+  padding: 30px 0 20px;
+  dddmargin-bottom: 40px;
+  dddmargin-top: 40px;
+}
