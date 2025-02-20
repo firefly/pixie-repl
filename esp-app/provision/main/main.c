@@ -151,16 +151,33 @@ int dumpNvs(nvs_handle_t nvs, char *key, size_t length) {
     return olen;
 }
 
+uint8_t* allocSpace(size_t size, void *arg) {
+    void* result = malloc(size);
+    //printf("MALLOC: %d => %p\n", size, result);
+    return result;
+}
+
+void freeSpace(uint8_t *pointer, void *arg) {
+    //printf("FREE: %p\n", pointer);
+    free(pointer);
+}
+
 #define DISPLAY_BUS        (FfxDisplaySpiBus2)
 #define PIN_DISPLAY_DC     (4)
 #define PIN_DISPLAY_RESET  (5)
 
 void render_scene(uint8_t *fragment, uint32_t y0, void *context) {
     FfxScene scene = context;
-    ffx_scene_render(scene, fragment, y0, FfxDisplayFragmentHeight);
+    ffx_scene_render(scene, (uint16_t*)fragment,
+      (FfxPoint){ .x = 0, .y = y0 },
+      (FfxSize){
+          .width = FfxDisplayFragmentWidth,
+          .height = FfxDisplayFragmentHeight
+      });
 }
 
 static nvs_handle_t nvs;
+static bool nvsReadOnly = false;
 void _nvs_open() {
     int ret = nvs_flash_init_partition("attest");
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -169,20 +186,24 @@ void _nvs_open() {
 
     ret = nvs_open_from_partition("attest", "secure", NVS_READWRITE, &nvs);
     if (ret) {
-        panic("failed to open attest partition", ret);
+        ret = nvs_open_from_partition("attest", "secure", NVS_READONLY, &nvs);
+        if (ret) {
+            panic("failed to open attest partition", ret);
+        }
+        nvsReadOnly = true;
     }
 }
 
-#define LINE_COUNT    (5)
-#define LINE_LENGTH   (20)
+#define LINE_COUNT    (8)
 
 static size_t line = 0;
-static char _lines[LINE_COUNT * LINE_LENGTH * 2] = { 0 };
 static FfxNode lines[LINE_COUNT];
 static FfxScene scene;
 static FfxDisplayContext display;
+
 void scene_init() {
-    scene = ffx_scene_init(64);
+
+    scene = ffx_scene_init(allocSpace, freeSpace, NULL);
 
     display = ffx_display_init(DISPLAY_BUS, PIN_DISPLAY_DC,
       PIN_DISPLAY_RESET, FfxDisplayRotationRibbonRight, render_scene, scene);
@@ -193,40 +214,39 @@ void scene_init() {
     FfxNode root = ffx_scene_root(scene);
 
     FfxNode fill = ffx_scene_createFill(scene, ffx_color_rgb(0, 0, 0, 0x20));
-    ffx_scene_appendChild(root, fill);
+    ffx_sceneGroup_appendChild(root, fill);
 
     {
         FfxNode logo = ffx_scene_createImage(scene, image_logo, sizeof(image_logo));
-        ffx_scene_appendChild(root, logo);
-        FfxPoint *point = ffx_scene_nodePosition(logo);
-        point->x = 82;
-        point->y = 0;
+        ffx_sceneGroup_appendChild(root, logo);
+        ffx_sceneNode_setPosition(logo, (FfxPoint){ .x = 82, .y = 0});
     }
 
     for (int i = 0; i < LINE_COUNT; i++) {
-        lines[i] = ffx_scene_createTextFlip(scene, &_lines[i * 2 * LINE_LENGTH], LINE_LENGTH * 2);
-        ffx_scene_appendChild(root, lines[i]);
-        FfxPoint *point = ffx_scene_nodePosition(lines[i]);
-        point->x = 10;
-        point->y = 106 + i * 27;
+        lines[i] = ffx_scene_createLabel(scene, FfxFontMedium, "");
+        ffx_sceneGroup_appendChild(root, lines[i]);
+        ffx_sceneNode_setPosition(lines[i], (FfxPoint){
+            .x = 10, .y = 80 + i * 20
+        });
     }
 }
 
 void scene_addText(char *text) {
 
     if (line < LINE_COUNT) {
-        ffx_scene_textSetText(lines[line], text, strlen(text) + 1);
+        ffx_sceneLabel_setText(lines[line], text);
         line++;
         return;
     }
 
     for (int i = 1; i < line; i++) {
-        char tmp[20];
-        size_t length = ffx_scene_textGetText(lines[i], tmp, sizeof(tmp));
-        ffx_scene_textSetText(lines[i - 1], tmp, length);
+        char tmp[32];
+        size_t length = ffx_sceneLabel_copyText(lines[i], tmp, sizeof(tmp) - 1);
+        tmp[length] = 0;
+        ffx_sceneLabel_setText(lines[i - 1], tmp);
     }
 
-    ffx_scene_textSetText(lines[line - 1], text, strlen(text) + 1);
+    ffx_sceneLabel_setText(lines[line - 1], text);
     if (line < LINE_COUNT) { line++; }
 }
 
@@ -293,7 +313,7 @@ void scene_checkAttest() {
 }
 
 void scene_checkEfuse() {
-    char text[20];
+    char text[32];
 
     uint32_t version = esp_efuse_read_reg(DEVICE_INFO_BLOCK, 0);
     uint32_t model = esp_efuse_read_reg(DEVICE_INFO_BLOCK, 1);
@@ -841,6 +861,11 @@ void app_main() {
                 scene_addText("> WRITE");
 
                 bool error = false;
+
+                if (nvsReadOnly) {
+                    printf("! WRITE cannot write (NVS partition is read-only)\n");
+                    error = true;
+                }
 
                 if (!hasAttest) {
                     printf("! WRITE missing attest (use LOAD-NVS or SET-ATTEST)\n");
