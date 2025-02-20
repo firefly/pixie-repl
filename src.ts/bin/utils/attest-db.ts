@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
-import { assert } from "../utils/errors.js";
+import { assert } from "../../utils/errors.js";
 
 function getTime(): number {
     return Math.floor((new Date()).getTime() / 1000);
@@ -83,12 +83,3 @@ export class AttestDatabaseFolder implements AttestDatabase {
         return `rev-${ hexpad(model, 4) }-${ hexpad(serial, 6) }.json`;
     }
 }
-
-/*
-(function() {
-    const path = "/Volumes/FireflyProvision/devices";
-    const db = new AttestDatabaseFolder(path);
-    console.log(db.read(0x106, 177));
-
-})();
-*/

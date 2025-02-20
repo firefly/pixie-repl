@@ -13,7 +13,7 @@ import { NVSData } from "../nvs.js";
 import { PartitionTable } from "../partition.js";
 import { getBytes } from "../utils/data.js";
 import { assert } from "../utils/errors.js";
-import { resolve } from "../utils/path.js";
+import { resolve } from "./utils/path.js";
 import { stall } from "../utils/timer.js";
 
 import type { GenerateKeyResult, ProvisionData } from "../provision/repl.js";

@@ -1,10 +1,10 @@
 import { createServer } from "http";
 import { URL } from "url";
 
-import { compute } from "../attest.js";
+import { compute } from "../../attest.js";
 
-import { getBytes } from "../utils/data.js";
-import { assert } from "../utils/errors.js";
+import { getBytes } from "../../utils/data.js";
+import { assert } from "../../utils/errors.js";
 
 
 import type { Server } from "http";

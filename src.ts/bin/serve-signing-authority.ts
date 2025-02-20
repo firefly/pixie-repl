@@ -11,8 +11,8 @@ import { getModelName } from "../attest.js";
 
 import { assert } from "../utils/errors.js";
 
-import { AttestDatabaseFolder } from "../provision/attest-db.js";
-import { start } from "../provision/signing-server.js";
+import { AttestDatabaseFolder } from "./utils/attest-db.js";
+import { start } from "./utils/signing-server.js";
 
 
 function readTextFile(path: string): string {
