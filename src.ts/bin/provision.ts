@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync } from "fs";
 
 import { hexlify, toBeArray } from "ethers";
 
@@ -127,19 +127,6 @@ const t0 = getTime();
 
     console.log("Burning attestation key...");
     await repl.burn();
-
-    {
-        const time = getTime();
-        const path = `/Users/ricmoo/Downloads/provision-logs/log-${ prov.model }-${ prov.serial }-${ time }`;
-        writeFileSync(path, JSON.stringify({
-            logs: repl.logs, genkey, prov, time
-        }, (key, value) => {
-            if (value instanceof Uint8Array) {
-                return hexlify(value);
-            }
-            return value;
-        }));
-    }
 
     await stall(2000);
 

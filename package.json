@@ -18,7 +18,7 @@
     "@types/node": "^20.11.25",
     "@types/pako": "^2.0.3",
     "@types/semver": "^7.5.8",
-    "rollup": "^4.12.1",
+    "rollup": "^4.28.1",
     "semver": "^7.6.0",
     "typescript": "^5.4.2",
     "uglify-js": "^3.17.4"
@@ -64,7 +64,9 @@
     "build-dist": "npm run build && npm run _build-dist",
     "clean": "rm -rf lib.commonjs lib.esm && cp -r misc/basedirs/* .",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "update-version": "node lib.esm/_admin/update-version"
+    "update-version": "node lib.esm/_admin/update-version",
+    "provision-serve": "node lib.esm/bin/serve-signing-authority",
+    "provision": "node lib.esm/bin/provision"
   },
   "sideEffects": false,
   "version": "0.1.1-beta.0"
